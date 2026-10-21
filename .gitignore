@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments & IDEs
+.env
+.env.local
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Databases
+*.db
+*.sqlite3
+*.sqlite
+identitytwin_dev.db
+identitytwin_test.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (Frontend & contracts)
+node_modules/
+npm-debug.log
