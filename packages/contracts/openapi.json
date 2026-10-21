@@ -447,6 +447,210 @@
         }
       }
     },
+    "/v1/sessions/{session_id}/step-up": {
+      "post": {
+        "tags": [
+          "Session Trust Management"
+        ],
+        "summary": "Issue step-up verification challenge",
+        "description": "Issues a time-bound step-up OTP challenge bound to session and merchant.",
+        "operationId": "create_step_up_challenge_v1_sessions__session_id__step_up_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpChallengeCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/step-up/verify": {
+      "post": {
+        "tags": [
+          "Session Trust Management"
+        ],
+        "summary": "Verify step-up challenge OTP code",
+        "description": "Validates step-up challenge code and issues a single-use verification token.",
+        "operationId": "verify_step_up_challenge_v1_sessions__session_id__step_up_verify_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepUpVerifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpVerifyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/payouts": {
       "post": {
         "tags": [
@@ -1000,6 +1204,113 @@
         }
       }
     },
+    "/v1/incidents/{incident_id}/approve-revocation": {
+      "post": {
+        "tags": [
+          "Incident Investigation & Approval"
+        ],
+        "summary": "Approve session revocation for security incident (Analyst/Admin Only)",
+        "description": "Requires analyst/admin credentials and merchant domain ownership. Records the audit trail confirming session isolation and permanent revocation. Guaranteed to never re-enable a session or execute a payout.",
+        "operationId": "approve_revocation_v1_incidents__incident_id__approve_revocation_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "incident_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Incident Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/webhooks/paypal": {
       "post": {
         "tags": [
@@ -1023,10 +1334,215 @@
           }
         }
       }
+    },
+    "/v1/stream": {
+      "get": {
+        "tags": [
+          "Real-Time Streaming (Person 2 - Risk & Person 5 - Evidence)"
+        ],
+        "summary": "Real-time event and telemetry stream (SSE / WebSocket)",
+        "description": "Live behavioral event stream stub. To be implemented by Person 2 and Person 5.",
+        "operationId": "get_telemetry_stream_v1_stream_get",
+        "responses": {
+          "501": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/identities/{id}/twin": {
+      "get": {
+        "tags": [
+          "Behavioral Identity Twin (Person 2 - Risk Intelligence)"
+        ],
+        "summary": "Fetch behavioral identity twin profile",
+        "description": "Behavioral model baseline and biometric deviation parameters stub. To be implemented by Person 2.",
+        "operationId": "get_identity_twin_v1_identities__id__twin_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/signatures/{id}/approve": {
+      "post": {
+        "tags": [
+          "Evidence Signatures (Person 5 - Evidence Integrity)"
+        ],
+        "summary": "Approve cryptographic signature on evidence bundle",
+        "description": "Cryptographic signature verification and evidence sign-off stub. To be implemented by Person 5.",
+        "operationId": "approve_signature_v1_signatures__id__approve_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/evidence/verify": {
+      "get": {
+        "tags": [
+          "Evidence Verification (Person 5 - Evidence Integrity)"
+        ],
+        "summary": "Verify cryptographic integrity of evidence record",
+        "description": "Evidence chain-of-custody verification pipeline stub. To be implemented by Person 5.",
+        "operationId": "verify_evidence_v1_evidence_verify_get",
+        "parameters": [
+          {
+            "name": "evidence_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "ID of evidence record or incident to verify",
+              "title": "Evidence Id"
+            },
+            "description": "ID of evidence record or incident to verify"
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/simulate/attack": {
+      "post": {
+        "tags": [
+          "Attack Simulation (Person 4 - Honey Workspace & Red Team)"
+        ],
+        "summary": "Trigger simulated adversarial account-takeover attack scenario",
+        "description": "Red-team simulation and honey-workspace drill trigger stub. To be implemented by Person 4 and Person 6.",
+        "operationId": "simulate_attack_v1_simulate_attack_post",
+        "responses": {
+          "501": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Machine-readable error code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable error explanation"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details",
+            "description": "Contextual error details and owner metadata"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail"
+      },
       "EventIngestRequest": {
         "properties": {
           "event_type": {
@@ -1862,6 +2378,119 @@
           "revoked"
         ],
         "title": "SessionStatus"
+      },
+      "StandardErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "StandardErrorResponse"
+      },
+      "StepUpChallengeCreateResponse": {
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Challenge Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "simulated_otp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Simulated Otp",
+            "description": "Simulated OTP code provided for local development and test environments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "challenge_id",
+          "session_id",
+          "expires_at"
+        ],
+        "title": "StepUpChallengeCreateResponse"
+      },
+      "StepUpVerifyRequest": {
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Challenge Id",
+            "description": "ID of the issued step-up challenge"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 16,
+            "minLength": 4,
+            "title": "Code",
+            "description": "One-time verification code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "challenge_id",
+          "code"
+        ],
+        "title": "StepUpVerifyRequest"
+      },
+      "StepUpVerifyResponse": {
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Challenge Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "verified"
+          },
+          "step_up_token": {
+            "type": "string",
+            "title": "Step Up Token",
+            "description": "Single-use token authorizing restricted payout execution"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "challenge_id",
+          "session_id",
+          "step_up_token",
+          "expires_at"
+        ],
+        "title": "StepUpVerifyResponse"
       },
       "TrustLevel": {
         "type": "string",

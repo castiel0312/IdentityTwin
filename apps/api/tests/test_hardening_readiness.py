@@ -83,17 +83,39 @@ def test_restricted_payout_within_limit_with_step_up_allowed(
 ):
     """
     Scenario 3b:
-    Restricted session within limit (250.00) WITH valid step-up token.
+    Restricted session within limit (250.00) WITH server-issued, verified step-up token.
     Payout is permitted under restricted clearance and invokes payment provider.
     """
     mock_provider_instance.reset()
+
+    # 1. Issue server-generated step-up challenge
+    res_challenge = client.post(
+        f"/v1/sessions/{RESTRICTED_SESSION_ID}/step-up",
+        headers=merchant_auth_headers,
+    )
+    assert res_challenge.status_code == 201
+    challenge_data = res_challenge.json()
+    challenge_id = challenge_data["challenge_id"]
+    otp = challenge_data["simulated_otp"]
+    assert otp is not None
+
+    # 2. Verify challenge with OTP
+    res_verify = client.post(
+        f"/v1/sessions/{RESTRICTED_SESSION_ID}/step-up/verify",
+        json={"challenge_id": challenge_id, "code": otp},
+        headers=merchant_auth_headers,
+    )
+    assert res_verify.status_code == 200
+    token = res_verify.json()["step_up_token"]
+
+    # 3. Submit payout using verified server-issued token
     payload = {
         "session_id": str(RESTRICTED_SESSION_ID),
         "recipient_email": "contractor@supplier.com",
         "amount": 250.00,
         "currency": "USD",
         "idempotency_key": "within-stepup-ok-" + str(uuid.uuid4()),
-        "step_up_token": "valid-step-up-token",
+        "step_up_token": token,
     }
     res = client.post("/v1/payouts", json=payload, headers=merchant_auth_headers)
     assert res.status_code == 200

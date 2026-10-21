@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import InvalidWebhookSignatureException
 from app.db.repositories.idempotency_repo import IdempotencyRepository
 from app.db.session import get_db
-from app.gateway.provider import IPaymentProviderAdapter, get_payment_provider
+from app.gateway.webhooks import verify_webhook_signature
 from app.models.idempotency import IdempotencyRecord
 
 router = APIRouter(prefix="/webhooks", tags=["PayPal Webhooks & Reconciliations"])
@@ -25,14 +25,13 @@ router = APIRouter(prefix="/webhooks", tags=["PayPal Webhooks & Reconciliations"
 async def receive_paypal_webhook(
     request: Request,
     db: Session = Depends(get_db),
-    provider: IPaymentProviderAdapter = Depends(get_payment_provider),
 ) -> dict[str, Any]:
     # 1. Read raw body and headers
     raw_body = await request.body()
     headers = dict(request.headers)
 
-    # 2. Cryptographic signature verification
-    is_valid = provider.verify_webhook_signature(headers=headers, raw_body=raw_body)
+    # 2. Cryptographic signature verification via Trust Gateway
+    is_valid = verify_webhook_signature(headers=headers, raw_body=raw_body)
     if not is_valid:
         raise InvalidWebhookSignatureException(
             message="PayPal webhook cryptographic signature verification failed.",

@@ -171,3 +171,69 @@ class IncidentService:
             notes=request.notes,
             message="Incident resolved and archived.",
         )
+
+    def approve_revocation(
+        self,
+        incident_id: UUID,
+        request: IncidentActionRequest,
+        principal: AuthenticatedPrincipal,
+    ) -> IncidentActionResponse:
+        # 1. Enforce analyst / admin role
+        if principal.role != RoleEnum.ANALYST and principal.role != RoleEnum.ADMIN:
+            raise InsufficientPermissionsException(
+                message="Incident revocation approval requires analyst or admin credentials.",
+                code="ANALYST_ROLE_REQUIRED",
+            )
+
+        # 2. Retrieve incident & validate merchant scope
+        incident = self.incident_repo.get_by_id(incident_id)
+        if not incident:
+            raise EntityNotFoundException(
+                message=f"Incident '{incident_id}' not found.",
+                code="INCIDENT_NOT_FOUND",
+            )
+
+        if incident.merchant_id != principal.merchant_id:
+            raise OwnershipMismatchException(
+                message="Access denied: Cannot approve incidents outside authorized merchant scope.",
+                code="MERCHANT_SCOPE_VIOLATION",
+            )
+
+        previous_status = IncidentStatus(incident.status)
+
+        # 3. CRITICAL INVARIANTS:
+        # - Records analyst audit action confirming the session revocation.
+        # - NEVER re-enables a session or executes a payout.
+        updated_incident = self.incident_repo.record_action(
+            incident=incident,
+            new_status=IncidentStatus.RESOLVED.value,
+            analyst_id=principal.user_id,
+            action_type="approved_revocation",
+            notes=request.notes,
+            metadata={
+                "resolution_reason": request.resolution_reason or "SESSION_REVOCATION_CONFIRMED",
+                "revocation_approved": True,
+            },
+        )
+
+        # Explicitly ensure associated session remains revoked if present
+        if incident.session_id:
+            from app.db.repositories.session_repo import SessionRepository
+            from app.schemas.sessions import SessionStatus
+
+            s_repo = SessionRepository(self.db)
+            session = s_repo.get_by_id(incident.session_id)
+            if session:
+                session.status = SessionStatus.REVOKED.value
+                self.db.commit()
+
+        return IncidentActionResponse(
+            incident_id=updated_incident.incident_id,
+            action="approved_revocation",
+            previous_status=previous_status,
+            new_status=IncidentStatus.RESOLVED,
+            analyst_id=principal.user_id,
+            timestamp=updated_incident.updated_at,
+            notes=request.notes,
+            message="Incident revocation confirmed and approved. Session remains revoked. No payout executed.",
+        )

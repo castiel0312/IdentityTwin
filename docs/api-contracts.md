@@ -139,6 +139,40 @@ Returns authoritative trust status and risk score for a single session.
 - **Auth**: Required. Validates merchant scope.
 - **Response** (200 OK): Same as single session item above.
 
+### `POST /v1/sessions/{session_id}/step-up`
+Issues a time-bound (5-minute) cryptographic step-up verification challenge bound to session and merchant.
+- **Auth**: Required (`merchant` role).
+- **Response** (201 Created):
+```json
+{
+  "challenge_id": "88888888-8888-8888-8888-888888888888",
+  "session_id": "33333333-3333-3333-3333-333333333333",
+  "expires_at": "2026-10-21T14:35:00Z",
+  "simulated_otp": "491823"
+}
+```
+
+### `POST /v1/sessions/{session_id}/step-up/verify`
+Validates the one-time verification code and marks the challenge verified.
+- **Auth**: Required (`merchant` role).
+- **Request Body**:
+```json
+{
+  "challenge_id": "88888888-8888-8888-8888-888888888888",
+  "code": "491823"
+}
+```
+- **Response** (200 OK):
+```json
+{
+  "challenge_id": "88888888-8888-8888-8888-888888888888",
+  "session_id": "33333333-3333-3333-3333-333333333333",
+  "status": "verified",
+  "step_up_token": "88888888-8888-8888-8888-888888888888",
+  "expires_at": "2026-10-21T14:35:00Z"
+}
+```
+
 ---
 
 ## 4. Protected Payout Operations
@@ -292,12 +326,25 @@ Resolves and archives an incident.
 - **Request Body**: Same as approve request.
 - **Response** (200 OK): Returns new_status `"RESOLVED"`.
 
+### `POST /v1/incidents/{incident_id}/approve-revocation`
+Confirms permanent session revocation in response to an anomaly or canary security incident.
+- **Auth**: Required (`analyst` or `admin` role). Validates merchant scope.
+- **Request Body**:
+```json
+{
+  "notes": "Reviewed attack telemetry. Confirmed account compromise. Session revocation permanently approved.",
+  "resolution_reason": "CONFIRMED_ACCOUNT_TAKEOVER"
+}
+```
+- **Invariant**: Strictly audit-logged. Never re-enables a session or triggers a payout.
+- **Response** (200 OK): Returns new_status `"RESOLVED"` and action `"approved_revocation"`.
+
 ---
 
 ## 6. PayPal Webhook Endpoints
 
 ### `POST /v1/webhooks/paypal`
-Receives and reconciles asynchronous notifications from PayPal Sandbox.
+Receives and reconciles asynchronous notifications from PayPal Sandbox via the Trust Gateway verification layer.
 - **Auth**: Cryptographic signature validation via PayPal HTTP transmission headers.
 - **Required Headers**:
   - `paypal-auth-algo`: e.g. `SHA256withRSA`
@@ -329,4 +376,30 @@ Receives and reconciles asynchronous notifications from PayPal Sandbox.
 }
 ```
 - **Error Response** (400 Bad Request): Returned when signature verification fails (`INVALID_WEBHOOK_SIGNATURE`).
+
+---
+
+## 7. Future Subsystem Typed Stubs (HTTP 501)
+
+These endpoints define the typed contracts for modules owned by other team members. They return standard structured error envelopes with HTTP status 501:
+
+### Standard 501 Error Envelope
+```json
+{
+  "error": {
+    "code": "NOT_IMPLEMENTED",
+    "message": "Endpoint not yet implemented.",
+    "details": {
+      "owner": "Person X (Role)"
+    }
+  }
+}
+```
+
+### Stubs by Owner:
+- **`GET /v1/stream`**: Real-time event and telemetry streaming (SSE / WebSocket). Tagged: `Real-Time Streaming (Person 2 - Risk & Person 5 - Evidence)`.
+- **`GET /v1/identities/{id}/twin`**: Behavioral identity twin baseline profile and parameters. Tagged: `Behavioral Identity Twin (Person 2 - Risk Intelligence)`.
+- **`POST /v1/signatures/{id}/approve`**: Cryptographic evidence bundle notarization and signature sign-off. Tagged: `Evidence Signatures (Person 5 - Evidence Integrity)`.
+- **`GET /v1/evidence/verify?evidence_id={id}`**: Cryptographic chain-of-custody verification. Tagged: `Evidence Verification (Person 5 - Evidence Integrity)`.
+- **`POST /v1/simulate/attack`**: Adversarial account-takeover drill runner. Tagged: `Attack Simulation (Person 4 - Honey Workspace & Red Team)`.
 

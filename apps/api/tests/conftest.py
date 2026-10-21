@@ -106,6 +106,11 @@ def db_session() -> Generator[Session, None, None]:
                 last_activity_at=now,
             )
             session.add(sess)
+        else:
+            existing.trust_level = t_level
+            existing.risk_score = r_score
+            existing.status = SessionStatus.ACTIVE.value
+            existing.last_activity_at = now
 
     existing_inc = session.query(IncidentRecord).filter_by(incident_id=TEST_INCIDENT_ID).first()
     if not existing_inc:

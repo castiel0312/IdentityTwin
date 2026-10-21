@@ -137,8 +137,37 @@ class TrustGatewayService:
             )
             risk_result = self.risk_engine.evaluate(db, session, risk_eval_req)
 
+            # Step-up verification check for restricted clearances
+            step_up_verified = False
+            step_up_challenge = None
+            step_up_repo = None
+            if request.step_up_token:
+                try:
+                    challenge_id = uuid.UUID(request.step_up_token)
+                    from app.db.repositories.step_up_repo import StepUpRepository
+
+                    step_up_repo = StepUpRepository(db)
+                    challenge = step_up_repo.get_by_id(challenge_id)
+                    if challenge:
+                        exp = challenge.expires_at
+                        if exp.tzinfo is None:
+                            exp = exp.replace(tzinfo=timezone.utc)
+                        if (
+                            challenge.session_id == session.session_id
+                            and challenge.merchant_id == principal.merchant_id
+                            and challenge.verified_at is not None
+                            and challenge.used_at is None
+                            and exp > datetime.now(timezone.utc)
+                        ):
+                            step_up_verified = True
+                            step_up_challenge = challenge
+                except (ValueError, TypeError):
+                    step_up_verified = False
+
             # 6. Apply centralized gateway routing policy
-            routing_decision = self.policy.evaluate(risk_result, payout_request=request)
+            routing_decision = self.policy.evaluate(
+                risk_result, payout_request=request, step_up_verified=step_up_verified
+            )
 
             # Persist RiskDecisionRecord for auditable evidence
             db_decision = RiskDecisionRecord(
@@ -167,6 +196,10 @@ class TrustGatewayService:
             provider_result = None
 
             if routing_decision.action == GatewayAction.ALLOW:
+                # Consume single-use step-up challenge if used
+                if step_up_challenge and step_up_repo:
+                    step_up_repo.mark_used(step_up_challenge)
+
                 # Legitimate transaction routed to payment provider adapter
                 provider_invoked = True
                 provider_result = self.provider_adapter.execute_payout(
@@ -189,6 +222,27 @@ class TrustGatewayService:
             elif routing_decision.action == GatewayAction.BLOCK:
                 payout_status = "blocked"
                 provider_payload = {"policy_rejection": "ISOLATED_SECURITY_BLOCK"}
+                # Trigger centralized isolation and open security incident
+                from app.gateway.isolation import isolate_session_and_open_incident
+
+                isolate_session_and_open_incident(
+                    db=db,
+                    session=session,
+                    merchant_id=principal.merchant_id,
+                    risk_score=routing_decision.risk_score,
+                    action="payout",
+                    trigger_reason=routing_decision.reason_codes[0]
+                    if routing_decision.reason_codes
+                    else "POLICY_ENFORCED_SESSION_ISOLATION",
+                    evidence_summary={
+                        "payout_id": str(payout_id),
+                        "amount": request.amount,
+                        "currency": request.currency,
+                        "recipient": request.recipient_email,
+                        "risk_signals": risk_result.risk_signals,
+                        "reason_codes": routing_decision.reason_codes,
+                    },
+                )
 
             # 8. Persist payout request and outcome record
             payout_record = PayoutRequestRecord(

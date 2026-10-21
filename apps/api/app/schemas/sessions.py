@@ -49,3 +49,31 @@ class SessionCreateRequest(BaseModel):
     device_fingerprint: str | None = Field(None, max_length=128)
     ip_address: str | None = Field(None, max_length=45)
     # Note: Client cannot set trust_level or risk_score! They are initialized server-side.
+
+
+class StepUpChallengeCreateResponse(BaseModel):
+    challenge_id: UUID
+    session_id: UUID
+    expires_at: datetime
+    simulated_otp: str | None = Field(
+        None, description="Simulated OTP code provided for local development and test environments"
+    )
+
+
+class StepUpVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    challenge_id: UUID = Field(description="ID of the issued step-up challenge")
+    code: str = Field(min_length=4, max_length=16, description="One-time verification code")
+
+
+class StepUpVerifyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    challenge_id: UUID
+    session_id: UUID
+    status: str = "verified"
+    step_up_token: str = Field(
+        description="Single-use token authorizing restricted payout execution"
+    )
+    expires_at: datetime

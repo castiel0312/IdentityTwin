@@ -71,3 +71,36 @@ graph LR
 - **No Secret / Token Persistence**: Raw passwords, API secrets, and Bearer tokens are never stored in database tables or logs.
 - **Sanitized Request Logging**: The logging middleware intercepts all HTTP requests and logs timing, method, URL path, and client IP, but explicitly redacts request headers (`Authorization`) and request body payloads.
 - **Synthetic Test Mock**: `MockPaymentProviderAdapter` generates explicit `SYNTH-MOCK-TXN-...` identifiers with clear simulation warnings. It never claims real money moved.
+
+---
+
+## 5. Gateway Invariants and Proof Tests
+
+The IdentityTwin Trust Gateway enforces fundamental mathematical and architectural security guarantees across all money-movement operations. Every invariant is backed by automated proof tests:
+
+| Invariant Guarantee | Verification Mechanism & Proof Test | Test File |
+| :--- | :--- | :--- |
+| **No Payment Adapter Bypass** | AST scan asserts zero modules outside `app/gateway` import provider adapters or provider getters. | `test_ast_scan_no_provider_imports_outside_gateway` in [`test_no_bypass.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_no_bypass.py) |
+| **Provider Invocation Matrix** | Configured payment provider adapter is called exactly once for `NORMAL`, and zero times for `RESTRICTED`, `DECOY`, `ISOLATED`, or `revoked`. | `test_provider_invocation_matrix_trust_levels`, `test_provider_invocation_matrix_revoked_session` in [`test_no_bypass.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_no_bypass.py) |
+| **Hero Attack & Canary Isolation** | Canary interaction immediately transitions session to Level 3 (`ISOLATED`), revokes session in DB, creates critical security incident, and denies subsequent payout attempts (provider count = 0). | `test_hero_attack_sequence_canary_to_payout_block` in [`test_no_bypass.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_no_bypass.py) |
+| **Server-Issued Step-Up Verification** | Client cannot forge step-up tokens. Tokens are single-use, 5-minute time-bound OTP challenges bound to session and merchant. | `test_forged_step_up_token_rejected`, `test_reused_step_up_token_rejected`, `test_expired_step_up_challenge_rejected`, `test_other_session_step_up_token_rejected` in [`test_step_up.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_step_up.py) |
+| **Restricted Payout Limits** | Payouts above $500.00 are rejected unconditionally in RESTRICTED state. Payouts under $500.00 require server-verified step-up proof. | `test_restricted_payout_exceeding_limit_rejected`, `test_restricted_payout_within_limit_without_step_up_rejected` in [`test_hardening_readiness.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_hardening_readiness.py) |
+| **Decoy Confinement** | DECOY sessions route exclusively to synthetic honey handlers. Real payment rails are never contacted. | `test_decoy_session_routed_to_synthetic_honey_never_paypal` in [`test_hardening_readiness.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_hardening_readiness.py) |
+| **Session Ownership Enforcement** | Payouts and event ingestion enforce row-level session ownership matching the authenticated principal's user and merchant UUID. | `test_events_payouts_cross_merchant_rejected`, `test_session_user_ownership_mismatch` in [`test_security_audit.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_security_audit.py) |
+| **Idempotency Execution Guard & Replay Prevention** | Duplicate idempotency requests return cached responses without re-executing provider. Parameter tampering fails closed. | `test_idempotency_same_key_different_amount_rejected`, `test_concurrent_duplicate_idempotency_keys_handled_safely` in [`test_security_audit.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_security_audit.py) |
+| **Post-Provider Crash Safety** | Database failures after provider execution mark the record `provider_executed`. Subsequent retries are strictly blocked from re-invoking provider. | `test_post_provider_crash_safety_locks_idempotency` in [`test_hardening_readiness.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_hardening_readiness.py) |
+| **Incident Approval Non-Bypass** | Analyst approval logs audit notes but NEVER re-enables an isolated session or triggers a payout. | `test_incident_approval_does_not_bypass_payout_policy` in [`test_security_audit.py`](file:///Users/khoria/IdentityTwin/apps/api/tests/test_security_audit.py) |
+
+---
+
+## 6. Handoff Note for Risk Intelligence & Twin Owner (Person 2)
+
+> [!IMPORTANT]
+> **Server-Side Behavioral Signal Derivation Requirement**
+> 
+> In the current hackathon foundation baseline, client telemetry requests (`POST /v1/events`) and payout requests (`POST /v1/payouts`) may accept contextual signals (e.g., `device_id`, `ip_address`, `metadata`) that are evaluated by `DeterministicRiskEngineService` in [`service.py`](file:///Users/khoria/IdentityTwin/apps/api/app/risk/service.py).
+>
+> **Action Required by Person 2**:
+> 1. Implement `IRiskEngineService` in [`apps/api/app/risk/service.py`](file:///Users/khoria/IdentityTwin/apps/api/app/risk/service.py) with ML/heuristic behavioral models (evaluating keystroke biometrics, mouse flight dynamics, and IP/device velocity against stored baseline profiles).
+> 2. **Never trust client-supplied risk flags**: Contextual flags (such as `is_new_device`, `is_new_location`, or `is_unusual_time`) must be derived **server-side** by comparing incoming telemetry against the user's historical profile and active sessions in the database, rather than trusting raw client payload flags.
+> 3. Emit named risk signals (e.g., `MOUSE_VELOCITY_ANOMALY`, `KEYSTROKE_FLIGHT_DELTA`, `CANARY_INTERACTION`) and bounded risk scores (`0.0 - 100.0`). The Gateway Policy will continue to authoritatively govern routing and isolation.

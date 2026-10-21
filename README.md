@@ -167,7 +167,7 @@ API runs on `http://localhost:8000`.
 
 ## 5. Automated Tests & Quality Checks
 
-Run the automated test suite across all 48 test scenarios (covering all 15 required security and provider properties):
+Run the automated test suite across all 63 test scenarios (covering all security boundaries, step-up verification, provider isolation matrix, and AST bypass checks):
 
 ```bash
 make test
@@ -190,7 +190,7 @@ make openapi
 
 | Teammate | Focus Area | Integration Touchpoint | Status |
 | :--- | :--- | :--- | :--- |
-| **Frontend** | React Dashboard | `packages/contracts/openapi.json` — Generate TypeScript types via `npx openapi-typescript`. | Contract Ready (11 paths) |
+| **Frontend** | React Dashboard | `packages/contracts/openapi.json` — Generate TypeScript types via `npx openapi-typescript`. | Contract Ready (19 paths) |
 | **Person 2** | Risk Intelligence | Implement `IRiskEngineService` in `app/risk/service.py`. Consume `SecurityEvent` telemetry. | 7 Named Signals Connected |
 | **Person 3** | PayPal Integration | `PayPalSandboxAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox credentials in `.env`. | Sandbox Adapter Ready |
 | **Person 4** | Honey Workspace | `DecoyHoneyAdapter` in `app/gateway/provider.py`. Confinement routing is automated. | Honey Routing Verified |

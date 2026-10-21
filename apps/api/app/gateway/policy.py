@@ -22,6 +22,7 @@ class TrustGatewayPolicy:
         self,
         risk_result: RiskEvaluationResult,
         payout_request: PayoutRequest | None = None,
+        step_up_verified: bool = False,
     ) -> GatewayRoutingDecision:
         level = risk_result.evaluated_trust_level
         reasons = list(risk_result.reason_codes)
@@ -78,11 +79,8 @@ class TrustGatewayPolicy:
                     timestamp=now,
                 )
 
-            # Step-up verification challenge
-            if payout_request and payout_request.step_up_token in (
-                "valid-step-up-token",
-                "step_up_mfa_verified",
-            ):
+            # Server-verified step-up challenge verification
+            if payout_request and step_up_verified:
                 reasons.append("RESTRICTED_STEP_UP_VERIFIED_PAYOUT_PERMITTED")
                 destination = (
                     RoutingDestination.PROVIDER_PAYPAL

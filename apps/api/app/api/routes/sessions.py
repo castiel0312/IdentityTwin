@@ -12,6 +12,9 @@ from app.schemas.sessions import (
     SessionCreateRequest,
     SessionListResponse,
     SessionResponse,
+    StepUpChallengeCreateResponse,
+    StepUpVerifyRequest,
+    StepUpVerifyResponse,
     TrustLevel,
 )
 
@@ -87,3 +90,146 @@ def create_session(
     )
     saved = repo.create(new_session)
     return SessionResponse.model_validate(saved)
+
+
+@router.post(
+    "/{session_id}/step-up",
+    response_model=StepUpChallengeCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Issue step-up verification challenge",
+    description="Issues a time-bound step-up OTP challenge bound to session and merchant.",
+)
+def create_step_up_challenge(
+    session_id: UUID,
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> StepUpChallengeCreateResponse:
+    import hashlib
+    import secrets
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.config import settings
+    from app.core.exceptions import PolicyViolationException
+    from app.db.repositories.step_up_repo import StepUpRepository
+    from app.models.step_up import StepUpChallenge
+    from app.schemas.sessions import SessionStatus
+
+    session_repo = SessionRepository(db)
+    session = session_repo.get_by_id(session_id)
+    if not session:
+        raise EntityNotFoundException(f"Session '{session_id}' not found.")
+
+    if session.merchant_id != principal.merchant_id or session.user_id != principal.user_id:
+        raise OwnershipMismatchException(
+            "Access denied: Session does not belong to authenticated principal."
+        )
+
+    if session.status != SessionStatus.ACTIVE.value:
+        raise PolicyViolationException(
+            message=f"Session is in '{session.status}' state and cannot issue step-up challenges.",
+            code="INACTIVE_SESSION",
+        )
+
+    # Generate 6-digit OTP code
+    otp_code = f"{secrets.randbelow(1000000):06d}"
+    code_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(minutes=5)
+
+    challenge = StepUpChallenge(
+        session_id=session.session_id,
+        merchant_id=principal.merchant_id,
+        code_hash=code_hash,
+        expires_at=expires_at,
+    )
+    step_up_repo = StepUpRepository(db)
+    saved_challenge = step_up_repo.create(challenge)
+
+    simulated_otp = otp_code if settings.ENVIRONMENT in ("development", "test") else None
+
+    return StepUpChallengeCreateResponse(
+        challenge_id=saved_challenge.id,
+        session_id=session.session_id,
+        expires_at=saved_challenge.expires_at,
+        simulated_otp=simulated_otp,
+    )
+
+
+@router.post(
+    "/{session_id}/step-up/verify",
+    response_model=StepUpVerifyResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Verify step-up challenge OTP code",
+    description="Validates step-up challenge code and issues a single-use verification token.",
+)
+def verify_step_up_challenge(
+    session_id: UUID,
+    request: StepUpVerifyRequest,
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> StepUpVerifyResponse:
+    import hashlib
+    from datetime import datetime, timezone
+
+    from app.core.exceptions import PolicyViolationException
+    from app.db.repositories.step_up_repo import StepUpRepository
+
+    session_repo = SessionRepository(db)
+    session = session_repo.get_by_id(session_id)
+    if not session:
+        raise EntityNotFoundException(f"Session '{session_id}' not found.")
+
+    if session.merchant_id != principal.merchant_id or session.user_id != principal.user_id:
+        raise OwnershipMismatchException(
+            "Access denied: Session does not belong to authenticated principal."
+        )
+
+    step_up_repo = StepUpRepository(db)
+    challenge = step_up_repo.get_by_id(request.challenge_id)
+    if (
+        not challenge
+        or challenge.session_id != session.session_id
+        or challenge.merchant_id != principal.merchant_id
+    ):
+        raise PolicyViolationException(
+            message="Step-up challenge not found or does not belong to this session.",
+            code="INVALID_STEP_UP_CHALLENGE",
+            status_code=400,
+        )
+
+    now = datetime.now(timezone.utc)
+    if challenge.used_at is not None:
+        raise PolicyViolationException(
+            message="Step-up challenge has already been used.",
+            code="STEP_UP_CHALLENGE_ALREADY_USED",
+            status_code=400,
+        )
+
+    challenge_expires_at = challenge.expires_at
+    if challenge_expires_at.tzinfo is None:
+        challenge_expires_at = challenge_expires_at.replace(tzinfo=timezone.utc)
+
+    if challenge_expires_at < now:
+        raise PolicyViolationException(
+            message="Step-up challenge has expired.",
+            code="STEP_UP_CHALLENGE_EXPIRED",
+            status_code=400,
+        )
+
+    candidate_hash = hashlib.sha256(request.code.strip().encode()).hexdigest()
+    if candidate_hash != challenge.code_hash:
+        raise PolicyViolationException(
+            message="Invalid step-up OTP code provided.",
+            code="INVALID_STEP_UP_CODE",
+            status_code=400,
+        )
+
+    step_up_repo.mark_verified(challenge)
+
+    return StepUpVerifyResponse(
+        challenge_id=challenge.id,
+        session_id=session.session_id,
+        status="verified",
+        step_up_token=str(challenge.id),
+        expires_at=challenge.expires_at,
+    )

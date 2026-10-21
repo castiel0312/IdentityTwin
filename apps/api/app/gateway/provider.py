@@ -348,8 +348,10 @@ class PayPalSandboxAdapter:
         if not all([auth_algo, cert_url, trans_id, trans_sig, trans_time]):
             return False
 
-        # In dev mode without configured credentials, provide deterministic signature check
+        # When credentials/webhook id are missing, reject unless in development mode
         if not self.client_id or not self.client_secret or not self.webhook_id:
+            if settings.ENVIRONMENT != "development":
+                return False
             if "invalid" in trans_sig.lower() or trans_sig == "TEST-INVALID-SIG":
                 return False
             return True

@@ -100,3 +100,24 @@ def resolve_incident(
 ) -> IncidentActionResponse:
     service = IncidentService(db)
     return service.resolve_incident(incident_id=incident_id, request=request, principal=principal)
+
+
+@router.post(
+    "/{incident_id}/approve-revocation",
+    response_model=IncidentActionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Approve session revocation for security incident (Analyst/Admin Only)",
+    description=(
+        "Requires analyst/admin credentials and merchant domain ownership. "
+        "Records the audit trail confirming session isolation and permanent revocation. "
+        "Guaranteed to never re-enable a session or execute a payout."
+    ),
+)
+def approve_revocation(
+    incident_id: UUID,
+    request: IncidentActionRequest,
+    principal: AuthenticatedPrincipal = Depends(require_role(RoleEnum.ANALYST)),
+    db: Session = Depends(get_db),
+) -> IncidentActionResponse:
+    service = IncidentService(db)
+    return service.approve_revocation(incident_id=incident_id, request=request, principal=principal)

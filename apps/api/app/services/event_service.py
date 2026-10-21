@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -13,11 +12,9 @@ from app.db.repositories.event_repo import EventRepository
 from app.db.repositories.incident_repo import IncidentRepository
 from app.db.repositories.session_repo import SessionRepository
 from app.models.event import SecurityEvent
-from app.models.incident import IncidentRecord
 from app.risk.schemas import RiskEvaluationRequest
 from app.risk.service import IRiskEngineService, get_risk_engine
 from app.schemas.events import EventIngestRequest, EventIngestResponse
-from app.schemas.incidents import IncidentSeverity, IncidentStatus
 from app.schemas.sessions import SessionStatus, TrustLevel
 
 
@@ -102,21 +99,14 @@ class EventService:
 
         # 4. Check for canary or isolation trigger
         if risk_result.evaluated_trust_level == TrustLevel.ISOLATED:
-            # Terminate/revoke session and isolate
-            session.status = SessionStatus.REVOKED.value
-            # Record security incident for analyst review
-            incident = IncidentRecord(
-                incident_id=uuid.uuid4(),
+            from app.gateway.isolation import isolate_session_and_open_incident
+
+            isolate_session_and_open_incident(
+                db=self.db,
+                session=session,
                 merchant_id=principal.merchant_id,
-                session_id=session.session_id,
-                title="Immediate Security Isolation Triggered",
-                description=(
-                    f"Session isolated due to critical risk evaluation (score={risk_result.risk_score}). "
-                    f"Action: {request.action}"
-                ),
-                severity=IncidentSeverity.CRITICAL.value,
-                status=IncidentStatus.OPEN.value,
                 risk_score=risk_result.risk_score,
+                action=request.action,
                 trigger_reason=risk_result.reason_codes[0]
                 if risk_result.reason_codes
                 else "ANOMALY_ISOLATION",
@@ -128,7 +118,6 @@ class EventService:
                     "metadata": request.metadata,
                 },
             )
-            self.incident_repo.create(incident)
 
         # 5. Update session trust state and activity
         self.session_repo.update_trust_state(
