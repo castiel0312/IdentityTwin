@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # IdentityTwin — Behavioral Identity & Trust Gateway
 
 > **Hackathon Security Product**: Behavioral identity verification and policy-enforced trust gateway for merchant payment operations.
@@ -6,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-red.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/Tests-37%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-48%20Passed-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)]()
 
 ---
@@ -19,8 +18,9 @@ This repository contains the **Backend Foundation and Trust Gateway (Person 1)**
 - Core FastAPI v1 REST application with structured logging and consistent error contracts.
 - Centralized gateway routing policy enforcing 4 distinct trust levels.
 - Protected payout execution sequence with database-backed idempotency guards.
-- Safe payment provider adapter abstractions (`MockPaymentProviderAdapter` and `DecoyHoneyAdapter`).
-- Shared telemetry ingestion API (`POST /v1/events`).
+- Safe payment provider adapter abstractions (`MockPaymentProviderAdapter`, `DecoyHoneyAdapter`, and official `PayPalSandboxAdapter`).
+- Shared telemetry ingestion API (`POST /v1/events`) with 7 deterministic behavioral risk signals.
+- Inbound PayPal webhook receiver (`POST /v1/webhooks/paypal`) with cryptographic signature verification and reconciliation.
 - Incident review and approval APIs with strict Role-Based Access Control (RBAC).
 - SQLAlchemy 2.0 models and Alembic migrations.
 - Exported OpenAPI specification for frontend and team integration.
@@ -35,11 +35,12 @@ graph TD
     Client[Merchant Client / React App] -->|Events Telemetry| E[POST /v1/events]
     Client -->|Protected Payout| P[POST /v1/payouts]
     Analyst[Analyst Dashboard] -->|Incident Review| I[GET & POST /v1/incidents]
+    PayPal[PayPal Webhooks] -->|Batch Reconcile| W[POST /v1/webhooks/paypal]
 
     subgraph TrustGateway[IdentityTwin Trust Gateway]
         Auth[Auth Guard & Session Scope]
         Idem[Idempotency & Duplicate Check]
-        Risk[Risk Engine Interface]
+        Risk[Risk Engine: 7 Named Signals]
         Policy[Centralized Policy Enforcement]
         Audit[Audit & Decision Logger]
     end
@@ -47,6 +48,7 @@ graph TD
     P --> Auth
     E --> Auth
     I --> Auth
+    W --> Idem
 
     Auth --> Idem --> Risk --> Policy --> Audit
 
@@ -57,22 +59,22 @@ graph TD
         Block[Session Isolation Block]
     end
 
-    Policy -->|NORMAL: Score < 50| Prov
-    Policy -->|RESTRICTED: 50 <= Score < 80| Rej
-    Policy -->|DECOY: Honey Flagged| Decoy
-    Policy -->|ISOLATED: Score >= 80| Block
+    Policy -->|Level 0: NORMAL Score < 30| Prov
+    Policy -->|Level 1: RESTRICTED 30 <= Score < 60| Rej
+    Policy -->|Level 2: DECOY 60 <= Score < 90| Decoy
+    Policy -->|Level 3: ISOLATED Score >= 90 or Canary| Block
 
     Audit --> DB[(PostgreSQL / SQLite)]
 ```
 
-### Trust Levels & Invariants
+### Trust Levels & Invariants (PRD Thresholds)
 
 | Trust Level | Risk Score | Payout Action | Routing Destination | Security Invariant |
 | :--- | :--- | :--- | :--- | :--- |
-| **`NORMAL`** | `0.0 - 49.9` | `ALLOW` | `PROVIDER_MOCK` / `PROVIDER_PAYPAL` | Transaction proceeds to provider adapter exactly once. |
-| **`RESTRICTED`** | `50.0 - 79.9` | `REQUIRE_STEP_UP` | `RESTRICTED_REJECT` | Payout rejected by default. **Never touches PayPal.** Step-up MFA required. |
-| **`DECOY`** | N/A (Flagged) | `DECOY_FORWARD` | `DECOY_HONEY` | Routed to synthetic honey simulator. **Never moves funds or contacts PayPal.** |
-| **`ISOLATED`** | `80.0 - 100.0`| `BLOCK` | `ISOLATED_BLOCK` | Payout blocked immediately. **Never touches PayPal.** Further actions denied. |
+| **`NORMAL` (Level 0)** | `0.0 - 29.9` | `ALLOW` | `PROVIDER_MOCK` / `PROVIDER_PAYPAL` | Transaction proceeds to configured provider adapter exactly once. |
+| **`RESTRICTED` (Level 1)** | `30.0 - 59.9` | `REQUIRE_STEP_UP` | `RESTRICTED_REJECT` | Payout limit enforced ($500.00). Step-up challenge token required. Never silently bypasses policy. |
+| **`DECOY` (Level 2)** | `60.0 - 89.9` | `DECOY_FORWARD` | `DECOY_HONEY` | Routed exclusively to synthetic honey simulator. **Never moves funds or contacts PayPal.** |
+| **`ISOLATED` (Level 3)** | `90.0 - 100.0` or Canary | `BLOCK` | `ISOLATED_BLOCK` | Payout blocked immediately. Session revoked/terminated. Auditable Incident recorded. |
 
 ---
 
@@ -110,7 +112,7 @@ IdentityTwin/
 │       │   │   ├── service.py              # Deterministic baseline risk engine & interface
 │       │   │   └── schemas.py              # Risk evaluation models, named signals
 │       │   └── services/                   # EventService, IncidentService
-│       ├── tests/                          # 37 comprehensive automated tests
+│       ├── tests/                          # 48 comprehensive automated tests
 │       ├── alembic/                        # Database migration scripts
 │       ├── alembic.ini                     # Alembic configuration
 │       ├── pyproject.toml                  # Python package configuration & dependencies
@@ -165,7 +167,7 @@ API runs on `http://localhost:8000`.
 
 ## 5. Automated Tests & Quality Checks
 
-Run the automated test suite across all 15 required security properties:
+Run the automated test suite across all 48 test scenarios (covering all 15 required security and provider properties):
 
 ```bash
 make test
@@ -188,20 +190,35 @@ make openapi
 
 | Teammate | Focus Area | Integration Touchpoint | Status |
 | :--- | :--- | :--- | :--- |
-| **Frontend** | React Dashboard | `packages/contracts/openapi.json` — Generate TypeScript types via `npx openapi-typescript`. | Contract Ready |
-| **Person 2** | Risk Intelligence | Implement `IRiskEngineService` in `app/risk/service.py`. Consume `SecurityEvent` telemetry. | Interface Ready |
-| **Person 3** | PayPal Integration | Implement `IPaymentProviderAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox REST APIs. | Adapter Boundary Ready |
-| **Person 4** | Honey Workspace | Implement `DecoyHoneyAdapter` in `app/gateway/provider.py`. Confinement routing is automated. | Routing Ready |
-| **Person 5** | Evidence & Incidents | Consume `SecurityEvent`, `RiskDecisionRecord`, and `AnalystActionRecord` from database. | Schema Ready |
+| **Frontend** | React Dashboard | `packages/contracts/openapi.json` — Generate TypeScript types via `npx openapi-typescript`. | Contract Ready (11 paths) |
+| **Person 2** | Risk Intelligence | Implement `IRiskEngineService` in `app/risk/service.py`. Consume `SecurityEvent` telemetry. | 7 Named Signals Connected |
+| **Person 3** | PayPal Integration | `PayPalSandboxAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox credentials in `.env`. | Sandbox Adapter Ready |
+| **Person 4** | Honey Workspace | `DecoyHoneyAdapter` in `app/gateway/provider.py`. Confinement routing is automated. | Honey Routing Verified |
+| **Person 5** | Evidence & Incidents | Consume `SecurityEvent`, `RiskDecisionRecord`, and `AnalystActionRecord` from database. | Evidence Integrity Ready |
 | **Person 6** | AI Investigator | Read incident telemetry via `GET /v1/incidents/{id}`. | Read API Ready |
 
 ---
 
-## 7. Known Limitations & Security Notes
+## 7. PayPal Sandbox Integration & Demo Setup
 
-1. **Development Authentication**: Uses static Bearer tokens and `X-Dev-*` headers for rapid local testing. In production (`ENVIRONMENT=production`), development authentication is strictly rejected; enterprise OIDC/OAuth2 with cryptographic JWKS validation must be configured.
-2. **Mock Payment Provider**: The foundational payment adapter is a simulated mock (`MockPaymentProviderAdapter`) returning unmistakable `SYNTH-MOCK-TXN-...` identifiers. It never contacts PayPal or moves real money. Person 3 will connect genuine PayPal Sandbox credentials.
-3. **Deterministic Baseline Risk Engine**: Uses a baseline score of 0.0 with high-value volume heuristics. A score of 0.0 is an initial baseline default, not proof that a user's biometric identity has been assessed. Person 2 will plug in behavioral biometric analysis models.
-=======
-# IdentityTwin
->>>>>>> 5e5bbf4ebda08f14fd50d814e3d5eeb2d06f5e3f
+### Configuring Live PayPal Sandbox
+To connect live PayPal Sandbox credentials for demo execution:
+1. Log in to [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/applications/sandbox).
+2. Create or select a REST API Sandbox Application.
+3. Copy **Client ID** and **Secret** to your `.env`:
+   ```bash
+   PAYMENT_PROVIDER="paypal_sandbox"
+   PAYPAL_CLIENT_ID="<your_sandbox_client_id>"
+   PAYPAL_CLIENT_SECRET="<your_sandbox_client_secret>"
+   PAYPAL_WEBHOOK_ID="<your_webhook_id>"
+   PAYPAL_BASE_URL="https://api-m.sandbox.paypal.com"
+   ```
+4. Normal eligible payouts (`TrustLevel.NORMAL`) will automatically execute via official PayPal Payouts REST API (`/v1/payments/payouts`) with `PayPal-Request-Id` idempotency tracking.
+5. In the absence of live PayPal credentials, the platform defaults to `PAYMENT_PROVIDER="mock"`, providing safe synthetic transactions without network dependencies.
+
+### Security Invariants & Notes
+1. **Never Real Money**: The system is hardcoded to use PayPal Sandbox endpoints (`https://api-m.sandbox.paypal.com`) and synthetic demo data. Under no circumstances are live production credentials or real-money movements permitted.
+2. **Development Authentication**: Uses static Bearer tokens and `X-Dev-*` headers for rapid local testing. In production (`ENVIRONMENT=production`), development authentication is strictly rejected; enterprise OIDC/OAuth2 with cryptographic JWKS validation must be configured.
+3. **Canary Interaction Protection**: Any canary interaction immediately triggers Level 3 isolation, revokes the user session, and records an auditable incident regardless of initial risk score.
+
+

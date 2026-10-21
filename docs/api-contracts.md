@@ -291,3 +291,42 @@ Resolves and archives an incident.
 - **Auth**: Required (`analyst` role only).
 - **Request Body**: Same as approve request.
 - **Response** (200 OK): Returns new_status `"RESOLVED"`.
+
+---
+
+## 6. PayPal Webhook Endpoints
+
+### `POST /v1/webhooks/paypal`
+Receives and reconciles asynchronous notifications from PayPal Sandbox.
+- **Auth**: Cryptographic signature validation via PayPal HTTP transmission headers.
+- **Required Headers**:
+  - `paypal-auth-algo`: e.g. `SHA256withRSA`
+  - `paypal-cert-url`: URL pointing to PayPal certificate
+  - `paypal-transmission-id`: Unique PayPal transmission UUID
+  - `paypal-transmission-sig`: Base64 signature
+  - `paypal-transmission-time`: ISO 8601 timestamp
+- **Request Body**:
+```json
+{
+  "id": "WH-90812739812",
+  "event_type": "PAYMENT.PAYOUTSBATCH.SUCCESS",
+  "resource_type": "payouts",
+  "resource": {
+    "batch_header": {
+      "payout_batch_id": "28J99401HG871234F",
+      "batch_status": "SUCCESS"
+    }
+  }
+}
+```
+- **Response** (200 OK):
+```json
+{
+  "status": "processed",
+  "event_id": "WH-90812739812",
+  "event_type": "PAYMENT.PAYOUTSBATCH.SUCCESS",
+  "message": "PayPal webhook event verified, deduplicated, and reconciled successfully."
+}
+```
+- **Error Response** (400 Bad Request): Returned when signature verification fails (`INVALID_WEBHOOK_SIGNATURE`).
+

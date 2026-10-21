@@ -90,9 +90,9 @@ def db_session() -> Generator[Session, None, None]:
     # Upsert or ensure base sessions exist
     for s_id, t_level, r_score in [
         (NORMAL_SESSION_ID, TrustLevel.NORMAL.value, 0.0),
-        (RESTRICTED_SESSION_ID, TrustLevel.RESTRICTED.value, 60.0),
+        (RESTRICTED_SESSION_ID, TrustLevel.RESTRICTED.value, 45.0),
         (DECOY_SESSION_ID, TrustLevel.DECOY.value, 75.0),
-        (ISOLATED_SESSION_ID, TrustLevel.ISOLATED.value, 90.0),
+        (ISOLATED_SESSION_ID, TrustLevel.ISOLATED.value, 95.0),
     ]:
         existing = session.query(SessionRecord).filter_by(session_id=s_id).first()
         if not existing:

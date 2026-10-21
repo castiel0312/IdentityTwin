@@ -142,6 +142,67 @@ class PayloadValidationException(IdentityTwinException):
         )
 
 
+class PaymentProviderException(IdentityTwinException):
+    def __init__(
+        self,
+        message: str = "Payment provider execution error.",
+        code: str = "PROVIDER_EXECUTION_ERROR",
+        status_code: int = status.HTTP_502_BAD_GATEWAY,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(
+            message=message,
+            code=code,
+            status_code=status_code,
+            details=details,
+        )
+
+
+class ProviderTimeoutException(IdentityTwinException):
+    def __init__(
+        self,
+        message: str = "Payment provider request timed out.",
+        code: str = "PROVIDER_TIMEOUT",
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(
+            message=message,
+            code=code,
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            details=details,
+        )
+
+
+class ProviderRateLimitException(IdentityTwinException):
+    def __init__(
+        self,
+        message: str = "Payment provider rate limit exceeded.",
+        code: str = "PROVIDER_RATE_LIMITED",
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(
+            message=message,
+            code=code,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            details=details,
+        )
+
+
+class InvalidWebhookSignatureException(IdentityTwinException):
+    def __init__(
+        self,
+        message: str = "PayPal webhook cryptographic signature verification failed.",
+        code: str = "INVALID_WEBHOOK_SIGNATURE",
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(
+            message=message,
+            code=code,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details=details,
+        )
+
+
 async def identitytwin_exception_handler(
     request: Request, exc: IdentityTwinException
 ) -> JSONResponse:

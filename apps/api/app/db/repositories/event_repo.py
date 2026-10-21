@@ -24,3 +24,12 @@ class EventRepository:
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
+
+    def get_by_idempotency_key(
+        self, merchant_id: UUID, idempotency_key: str
+    ) -> SecurityEvent | None:
+        stmt = select(SecurityEvent).where(
+            SecurityEvent.merchant_id == merchant_id,
+            SecurityEvent.idempotency_key == idempotency_key,
+        )
+        return self.db.scalars(stmt).first()

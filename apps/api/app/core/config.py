@@ -46,9 +46,15 @@ class Settings(BaseSettings):
         description="Allowed CORS origins",
     )
 
-    # Gateway Policy Thresholds
-    RISK_THRESHOLD_RESTRICTED: float = Field(default=50.0, ge=0.0, le=100.0)
-    RISK_THRESHOLD_ISOLATED: float = Field(default=80.0, ge=0.0, le=100.0)
+    # Gateway Policy Thresholds (PRD: Normal 0-29, Restricted 30-59, Decoy 60-89, Isolated 90-100)
+    RISK_THRESHOLD_RESTRICTED: float = Field(default=30.0, ge=0.0, le=100.0)
+    RISK_THRESHOLD_DECOY: float = Field(default=60.0, ge=0.0, le=100.0)
+    RISK_THRESHOLD_ISOLATED: float = Field(default=90.0, ge=0.0, le=100.0)
+    RESTRICTED_PAYOUT_LIMIT: float = Field(
+        default=500.0,
+        gt=0.0,
+        description="Maximum payout amount permitted for Restricted trust level without step-up challenge",
+    )
     RISK_BASELINE_SCORE: float = Field(
         default=0.0,
         ge=0.0,
@@ -60,6 +66,24 @@ class Settings(BaseSettings):
     PAYMENT_PROVIDER: str = Field(
         default="mock",
         description="Payment provider adapter selection: 'mock' or 'paypal_sandbox'",
+    )
+
+    # PayPal Sandbox Configuration
+    PAYPAL_CLIENT_ID: str = Field(default="", description="PayPal REST App Client ID for Sandbox")
+    PAYPAL_CLIENT_SECRET: str = Field(
+        default="", description="PayPal REST App Client Secret for Sandbox"
+    )
+    PAYPAL_WEBHOOK_ID: str = Field(
+        default="", description="PayPal Webhook ID for signature verification"
+    )
+    PAYPAL_BASE_URL: str = Field(
+        default="https://api-m.sandbox.paypal.com",
+        description="PayPal REST API Base URL (must be sandbox endpoint)",
+    )
+    PAYPAL_REQUEST_TIMEOUT: float = Field(
+        default=10.0,
+        gt=0.0,
+        description="HTTP request timeout in seconds for PayPal API calls",
     )
 
     # Logging

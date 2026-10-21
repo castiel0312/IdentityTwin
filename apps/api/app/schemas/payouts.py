@@ -43,6 +43,11 @@ class PayoutRequest(BaseModel):
         max_length=128,
         description="Unique caller-supplied client idempotency key to prevent double payouts",
     )
+    step_up_token: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Optional verification token satisfying step-up challenge for restricted sessions",
+    )
 
     @field_validator("recipient_email")
     @classmethod

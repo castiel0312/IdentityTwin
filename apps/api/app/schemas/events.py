@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.sessions import TrustLevel
+
 
 class EventType(str, Enum):
     AUTH_LOGIN = "auth.login"
@@ -84,3 +86,15 @@ class EventIngestResponse(BaseModel):
     server_received_at: datetime
     status: str = Field(default="accepted", description="'accepted' or 'duplicate'")
     message: str = "Event recorded successfully."
+    risk_score: float | None = Field(
+        default=None, description="Current cumulative session risk score"
+    )
+    trust_level: TrustLevel | None = Field(
+        default=None, description="Authoritative session trust level"
+    )
+    risk_signals: dict[str, float] = Field(
+        default_factory=dict, description="Named risk contributions from event"
+    )
+    reason_codes: list[str] = Field(
+        default_factory=list, description="Explanatory decision reason codes"
+    )

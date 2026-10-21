@@ -186,7 +186,7 @@ def test_elevated_session_risk_score_is_preserved_and_restricted(
         user_id=TEST_USER_ID,
         merchant_id=TEST_MERCHANT_ID,
         trust_level="NORMAL",
-        risk_score=65.0,  # Elevated score
+        risk_score=45.0,  # Elevated score in Restricted range (30-59)
         status=SessionStatus.ACTIVE.value,
     )
     db_session.add(elevated_session)
@@ -206,7 +206,7 @@ def test_elevated_session_risk_score_is_preserved_and_restricted(
 
     assert data["status"] == "rejected"
     assert data["trust_level"] == "RESTRICTED"
-    assert data["risk_score"] >= 65.0
+    assert data["risk_score"] >= 45.0
     assert data["action"] == "REQUIRE_STEP_UP"
     assert mock_provider_instance.invocation_count == 0
 

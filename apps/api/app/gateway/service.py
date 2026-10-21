@@ -138,7 +138,7 @@ class TrustGatewayService:
             risk_result = self.risk_engine.evaluate(db, session, risk_eval_req)
 
             # 6. Apply centralized gateway routing policy
-            routing_decision = self.policy.evaluate(risk_result)
+            routing_decision = self.policy.evaluate(risk_result, payout_request=request)
 
             # Persist RiskDecisionRecord for auditable evidence
             db_decision = RiskDecisionRecord(

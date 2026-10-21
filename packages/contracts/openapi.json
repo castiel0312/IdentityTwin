@@ -999,6 +999,30 @@
           }
         }
       }
+    },
+    "/v1/webhooks/paypal": {
+      "post": {
+        "tags": [
+          "PayPal Webhooks & Reconciliations"
+        ],
+        "summary": "Receive and verify incoming PayPal Sandbox webhook events",
+        "description": "Verifies cryptographic signature against PayPal Sandbox API. Enforces event idempotency and reconciles payout batch status. Unverified signatures are strictly rejected.",
+        "operationId": "receive_paypal_webhook_v1_webhooks_paypal_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Receive Paypal Webhook V1 Webhooks Paypal Post"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1111,6 +1135,45 @@
             "type": "string",
             "title": "Message",
             "default": "Event recorded successfully."
+          },
+          "risk_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Score",
+            "description": "Current cumulative session risk score"
+          },
+          "trust_level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrustLevel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Authoritative session trust level"
+          },
+          "risk_signals": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Risk Signals",
+            "description": "Named risk contributions from event"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Codes",
+            "description": "Explanatory decision reason codes"
           }
         },
         "type": "object",
@@ -1488,6 +1551,19 @@
             "minLength": 8,
             "title": "Idempotency Key",
             "description": "Unique caller-supplied client idempotency key to prevent double payouts"
+          },
+          "step_up_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Up Token",
+            "description": "Optional verification token satisfying step-up challenge for restricted sessions"
           }
         },
         "additionalProperties": false,
