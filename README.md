@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # IdentityTwin — Behavioral Identity & Trust Gateway
 
 > **Hackathon Security Product**: Behavioral identity verification and policy-enforced trust gateway for merchant payment operations.
@@ -201,3 +202,6 @@ make openapi
 1. **Development Authentication**: Uses static Bearer tokens and `X-Dev-*` headers for rapid local testing. In production (`ENVIRONMENT=production`), development authentication is strictly rejected; enterprise OIDC/OAuth2 with cryptographic JWKS validation must be configured.
 2. **Mock Payment Provider**: The foundational payment adapter is a simulated mock (`MockPaymentProviderAdapter`) returning unmistakable `SYNTH-MOCK-TXN-...` identifiers. It never contacts PayPal or moves real money. Person 3 will connect genuine PayPal Sandbox credentials.
 3. **Deterministic Baseline Risk Engine**: Uses a baseline score of 0.0 with high-value volume heuristics. A score of 0.0 is an initial baseline default, not proof that a user's biometric identity has been assessed. Person 2 will plug in behavioral biometric analysis models.
+=======
+# IdentityTwin
+>>>>>>> 5e5bbf4ebda08f14fd50d814e3d5eeb2d06f5e3f
