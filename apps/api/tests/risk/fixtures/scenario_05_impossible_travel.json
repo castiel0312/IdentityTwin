@@ -1,0 +1,68 @@
+{
+  "scenario_id": "impossible_travel",
+  "title": "Impossible travel between distant locations",
+  "description": "A location jump to a distant city is detected against the established twin baseline, and a device rotation on top of the location jump escalates the session into the restricted band.",
+  "identity": {
+    "device_id": "device-alpha",
+    "ip_address": "203.0.113.10",
+    "location": "Bengaluru",
+    "active_local_hour": 10
+  },
+  "baseline": [
+    {
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:00",
+      "day_offset": -3,
+      "recipient": "payroll@vendor.com",
+      "repeat": 2,
+      "repeat_spacing_minutes": 1
+    },
+    {
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:02",
+      "day_offset": -3,
+      "repeat": 12,
+      "repeat_spacing_minutes": 1
+    }
+  ],
+  "attack": [
+    {
+      "step": 1,
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-alpha",
+      "ip_address": "45.33.32.156",
+      "location": "Delhi",
+      "local_time": "10:30",
+      "day_offset": 0,
+      "expected": {
+        "risk_score": 14,
+        "trust_level": "NORMAL",
+        "signals": ["NEW_LOCATION"]
+      }
+    },
+    {
+      "step": 2,
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-attack-03",
+      "ip_address": "45.33.32.156",
+      "location": "Delhi",
+      "local_time": "10:32",
+      "day_offset": 0,
+      "expected": {
+        "risk_score": 32,
+        "trust_level": "RESTRICTED",
+        "signals": ["NEW_DEVICE"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "scenario_id": "canary_honeypot_hit",
+  "title": "Canary honeypot interaction",
+  "description": "The attacker touches a canary honeypot token. A canary interaction forces level 3 isolation immediately and permanently, even when the accumulated score would still be low.",
+  "identity": {
+    "device_id": "device-alpha",
+    "ip_address": "203.0.113.10",
+    "location": "Bengaluru",
+    "active_local_hour": 10
+  },
+  "baseline": [
+    {
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:00",
+      "day_offset": -3,
+      "recipient": "payroll@vendor.com",
+      "repeat": 2,
+      "repeat_spacing_minutes": 1
+    },
+    {
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:02",
+      "day_offset": -3,
+      "repeat": 12,
+      "repeat_spacing_minutes": 1
+    }
+  ],
+  "attack": [
+    {
+      "step": 1,
+      "action": "canary.trap",
+      "event_type": "security.anomaly_detected",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:30",
+      "day_offset": 0,
+      "canary_token": "IT-CANARY-0002",
+      "expected": {
+        "risk_score": 90,
+        "trust_level": "ISOLATED",
+        "signals": ["CANARY_INTERACTION"]
+      }
+    }
+  ]
+}

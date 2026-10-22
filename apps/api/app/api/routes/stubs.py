@@ -33,31 +33,6 @@ def get_telemetry_stream() -> JSONResponse:
     )
 
 
-@router.get(
-    "/identities/{id}/twin",
-    response_model=StandardErrorResponse,
-    status_code=status.HTTP_501_NOT_IMPLEMENTED,
-    responses={501: {"model": StandardErrorResponse}},
-    tags=["Behavioral Identity Twin (Person 2 - Risk Intelligence)"],
-    summary="Fetch behavioral identity twin profile",
-    description="Behavioral model baseline and biometric deviation parameters stub. To be implemented by Person 2.",
-)
-def get_identity_twin(id: UUID) -> JSONResponse:
-    return JSONResponse(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        content={
-            "error": {
-                "code": "NOT_IMPLEMENTED",
-                "message": f"Behavioral identity twin for '{id}' is not yet implemented.",
-                "details": {
-                    "owner": "Person 2 (Risk Intelligence)",
-                    "identity_id": str(id),
-                },
-            }
-        },
-    )
-
-
 @router.post(
     "/signatures/{id}/approve",
     response_model=StandardErrorResponse,

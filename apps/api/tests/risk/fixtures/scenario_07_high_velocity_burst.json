@@ -1,0 +1,103 @@
+{
+  "scenario_id": "high_velocity_burst",
+  "title": "High velocity payee and payout burst",
+  "description": "A compromised session registers several payees in quick succession and then drains the account. The session escalates from NORMAL to RESTRICTED and finally into the decoy band.",
+  "identity": {
+    "device_id": "device-alpha",
+    "ip_address": "203.0.113.10",
+    "location": "Bengaluru",
+    "active_local_hour": 10
+  },
+  "baseline": [
+    {
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:00",
+      "day_offset": -3,
+      "recipient": "payroll@vendor.com",
+      "repeat": 2,
+      "repeat_spacing_minutes": 1
+    },
+    {
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:02",
+      "day_offset": -3,
+      "repeat": 12,
+      "repeat_spacing_minutes": 1
+    }
+  ],
+  "attack": [
+    {
+      "step": 1,
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:30",
+      "day_offset": 0,
+      "recipient": "burst-1@evil.net",
+      "expected": {
+        "risk_score": 16,
+        "trust_level": "NORMAL",
+        "signals": ["NEW_PAYEE"]
+      }
+    },
+    {
+      "step": 2,
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:31",
+      "day_offset": 0,
+      "recipient": "burst-2@evil.net",
+      "expected": {
+        "risk_score": 32,
+        "trust_level": "RESTRICTED",
+        "signals": ["NEW_PAYEE"]
+      }
+    },
+    {
+      "step": 3,
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:32",
+      "day_offset": 0,
+      "recipient": "burst-3@evil.net",
+      "expected": {
+        "risk_score": 48,
+        "trust_level": "RESTRICTED",
+        "signals": ["NEW_PAYEE"]
+      }
+    },
+    {
+      "step": 4,
+      "action": "payout.submit",
+      "event_type": "payout.submit",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:35",
+      "day_offset": 0,
+      "amount": 9000.0,
+      "recipient": "burst-3@evil.net",
+      "expected": {
+        "risk_score": 78,
+        "trust_level": "DECOY",
+        "signals": ["LARGE_PAYOUT", "PAYEE_ADD_THEN_PAYOUT"]
+      }
+    }
+  ]
+}

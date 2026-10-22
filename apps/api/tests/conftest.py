@@ -21,6 +21,7 @@ from app.main import app
 from app.models.incident import IncidentRecord
 from app.models.principal import Merchant, User
 from app.models.session import SessionRecord
+from app.models.twin import BehavioralTwin, SessionRiskStateRecord
 from app.schemas.incidents import IncidentSeverity, IncidentStatus
 from app.schemas.sessions import SessionStatus, TrustLevel
 
@@ -133,6 +134,20 @@ def db_session() -> Generator[Session, None, None]:
     yield session
 
     session.close()
+
+
+@pytest.fixture(autouse=True)
+def reset_behavioral_state(db_session: Session) -> Generator[None, None, None]:
+    """Person 2: every test starts from a clean behavioural twin baseline.
+
+    The behavioural twin and the session risk ledger are persistent state that
+    is shared per identity. Resetting them between tests keeps the existing
+    Person 1 suite deterministic and independent of execution order.
+    """
+    db_session.query(BehavioralTwin).delete()
+    db_session.query(SessionRiskStateRecord).delete()
+    db_session.commit()
+    yield
 
 
 @pytest.fixture

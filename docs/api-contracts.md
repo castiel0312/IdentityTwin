@@ -398,8 +398,59 @@ These endpoints define the typed contracts for modules owned by other team membe
 
 ### Stubs by Owner:
 - **`GET /v1/stream`**: Real-time event and telemetry streaming (SSE / WebSocket). Tagged: `Real-Time Streaming (Person 2 - Risk & Person 5 - Evidence)`.
-- **`GET /v1/identities/{id}/twin`**: Behavioral identity twin baseline profile and parameters. Tagged: `Behavioral Identity Twin (Person 2 - Risk Intelligence)`.
 - **`POST /v1/signatures/{id}/approve`**: Cryptographic evidence bundle notarization and signature sign-off. Tagged: `Evidence Signatures (Person 5 - Evidence Integrity)`.
 - **`GET /v1/evidence/verify?evidence_id={id}`**: Cryptographic chain-of-custody verification. Tagged: `Evidence Verification (Person 5 - Evidence Integrity)`.
 - **`POST /v1/simulate/attack`**: Adversarial account-takeover drill runner. Tagged: `Attack Simulation (Person 4 - Honey Workspace & Red Team)`.
+
+---
+
+## 8. Behavioral Identity Twin (Person 2 - Risk Intelligence)
+
+The twin viewer was previously a 501 stub owned by Person 2. It is now implemented and documented here.
+
+### `GET /v1/identities/{id}/twin`
+
+Returns the behavioural baseline established for one identity inside the authenticated merchant domain.
+
+**Query Parameters**:
+- `compare_session_id` (optional, UUID): session to compare against the established baseline.
+
+**Response** (200 OK):
+```json
+{
+  "user_id": "11111111-1111-1111-1111-111111111111",
+  "merchant_id": "22222222-2222-2222-2222-222222222222",
+  "twin_id": "33333333-3333-3333-3333-333333333333",
+  "sample_count": 42,
+  "is_provisional": false,
+  "confirmed_device_count": 2,
+  "confirmed_location_count": 2,
+  "confirmed_payee_count": 3,
+  "pending_payee_count": 1,
+  "active_hours": [9, 10, 11],
+  "hour_histogram": {"9": 12, "10": 18, "11": 12},
+  "total_amount": 12450.0,
+  "amount_count": 42,
+  "device_fingerprints": ["<salted sha256 digest>"],
+  "location_buckets": ["BENGALURU"],
+  "last_updated_at": "2026-10-21T14:30:00Z",
+  "deviation": {
+    "session_id": "44444444-4444-4444-4444-444444444444",
+    "risk_score": 32.0,
+    "trust_level": "RESTRICTED",
+    "risk_signals": {"NEW_DEVICE": 18.0, "NEW_LOCATION": 14.0},
+    "reason_codes": ["NEW_DEVICE_DETECTED", "NEW_LOCATION_DETECTED"],
+    "is_new_device": true,
+    "is_new_location": true,
+    "session_carried_forward": 0.0,
+    "raw_points_sum": 32.0,
+    "decay_points": 0.0
+  }
+}
+```
+
+**Invariants**:
+- **Merchant scoped**: an identity that belongs to another merchant domain returns HTTP 403 with `IDENTITY_OWNERSHIP_MISMATCH`. A foreign `compare_session_id` returns HTTP 403 with `SESSION_OWNERSHIP_MISMATCH`.
+- **No raw identifiers**: device fingerprints are stored and returned only as salted SHA-256 digests; locations are returned as coarse buckets.
+- **Errors**: HTTP 404 `IDENTITY_NOT_FOUND` for an unknown identity, HTTP 404 `TWIN_NOT_FOUND` when no twin has been established yet, HTTP 404 `SESSION_NOT_FOUND` for an unknown `compare_session_id`.
 

@@ -1,0 +1,55 @@
+{
+  "scenario_id": "payee_redirection_compound",
+  "title": "Payee redirection with immediate large amount",
+  "description": "A beneficiary is replaced with a brand new payee and a large amount is attached to the same event. The compound signal NEW_PAYEE_LARGE_PAYOUT must fire in addition to the individual signals.",
+  "identity": {
+    "device_id": "device-alpha",
+    "ip_address": "203.0.113.10",
+    "location": "Bengaluru",
+    "active_local_hour": 10
+  },
+  "baseline": [
+    {
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:00",
+      "day_offset": -3,
+      "recipient": "payroll@vendor.com",
+      "repeat": 2,
+      "repeat_spacing_minutes": 1
+    },
+    {
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:02",
+      "day_offset": -3,
+      "repeat": 12,
+      "repeat_spacing_minutes": 1
+    }
+  ],
+  "attack": [
+    {
+      "step": 1,
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:30",
+      "day_offset": 0,
+      "amount": 7500.0,
+      "recipient": "new-beneficiary@evil.net",
+      "expected": {
+        "risk_score": 46,
+        "trust_level": "RESTRICTED",
+        "signals": ["NEW_PAYEE", "LARGE_PAYOUT", "NEW_PAYEE_LARGE_PAYOUT"]
+      }
+    }
+  ]
+}

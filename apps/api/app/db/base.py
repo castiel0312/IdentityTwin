@@ -1,5 +1,6 @@
 from app.models import (
     AnalystActionRecord,
+    BehavioralTwin,
     IdempotencyRecord,
     IncidentRecord,
     Merchant,
@@ -7,6 +8,7 @@ from app.models import (
     RiskDecisionRecord,
     SecurityEvent,
     SessionRecord,
+    SessionRiskStateRecord,
     User,
 )
 from app.models.base import Base
@@ -22,4 +24,6 @@ __all__ = [
     "IncidentRecord",
     "AnalystActionRecord",
     "IdempotencyRecord",
+    "BehavioralTwin",
+    "SessionRiskStateRecord",
 ]

@@ -17,6 +17,7 @@ class EventType(str, Enum):
     NAVIGATION_PAGEVIEW = "navigation.pageview"
     PAYOUT_ATTEMPT = "payout.attempt"
     PAYOUT_SUBMIT = "payout.submit"
+    PAYEE_ADDED = "payee.added"
     SECURITY_MFA_CHALLENGE = "security.mfa_challenge"
     SECURITY_ANOMALY_DETECTED = "security.anomaly_detected"
 

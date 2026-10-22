@@ -134,6 +134,14 @@ class TrustGatewayService:
                 action_type="payout",
                 amount=request.amount,
                 recipient=request.recipient_email,
+                # Person 2 (additive): device and network evidence is inherited
+                # from the authoritative session record when the payout request
+                # itself does not carry it.
+                device_id=session.device_fingerprint,
+                ip_address=session.ip_address,
+                occurred_at=now,
+                event_id=uuid.uuid4(),
+                event_type="payout.submit",
             )
             risk_result = self.risk_engine.evaluate(db, session, risk_eval_req)
 

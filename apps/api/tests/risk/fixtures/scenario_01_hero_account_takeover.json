@@ -1,0 +1,102 @@
+{
+  "scenario_id": "hero_account_takeover",
+  "title": "Hero account takeover chain",
+  "description": "Full account takeover chain: device takeover during off-hours, registration of a brand new payee, immediate large payout to that payee and finally interaction with a canary honeypot. The chain must escalate NORMAL -> RESTRICTED -> DECOY -> ISOLATED without any scenario specific engine logic.",
+  "identity": {
+    "device_id": "device-alpha",
+    "ip_address": "203.0.113.10",
+    "location": "Bengaluru",
+    "active_local_hour": 10
+  },
+  "baseline": [
+    {
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:00",
+      "day_offset": -3,
+      "recipient": "payroll@vendor.com",
+      "repeat": 2,
+      "repeat_spacing_minutes": 1
+    },
+    {
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-alpha",
+      "ip_address": "203.0.113.10",
+      "location": "Bengaluru",
+      "local_time": "10:02",
+      "day_offset": -3,
+      "repeat": 12,
+      "repeat_spacing_minutes": 1
+    }
+  ],
+  "attack": [
+    {
+      "step": 1,
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-attack-01",
+      "ip_address": "198.51.100.77",
+      "location": "Bengaluru",
+      "local_time": "03:00",
+      "day_offset": 0,
+      "expected": {
+        "risk_score": 29,
+        "trust_level": "NORMAL",
+        "signals": ["NEW_DEVICE", "UNUSUAL_TIME"]
+      }
+    },
+    {
+      "step": 2,
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-attack-01",
+      "ip_address": "198.51.100.77",
+      "location": "Bengaluru",
+      "local_time": "03:02",
+      "day_offset": 0,
+      "recipient": "attacker@evil-exfil.net",
+      "expected": {
+        "risk_score": 45,
+        "trust_level": "RESTRICTED",
+        "signals": ["NEW_PAYEE"]
+      }
+    },
+    {
+      "step": 3,
+      "action": "payout.submit",
+      "event_type": "payout.submit",
+      "device_id": "device-attack-01",
+      "ip_address": "198.51.100.77",
+      "location": "Bengaluru",
+      "local_time": "03:05",
+      "day_offset": 0,
+      "amount": 7500.0,
+      "recipient": "attacker@evil-exfil.net",
+      "expected": {
+        "risk_score": 75,
+        "trust_level": "DECOY",
+        "signals": ["LARGE_PAYOUT", "PAYEE_ADD_THEN_PAYOUT"]
+      }
+    },
+    {
+      "step": 4,
+      "action": "canary.trap",
+      "event_type": "security.anomaly_detected",
+      "device_id": "device-attack-01",
+      "ip_address": "198.51.100.77",
+      "location": "Bengaluru",
+      "local_time": "03:06",
+      "day_offset": 0,
+      "canary_token": "IT-CANARY-0001",
+      "expected": {
+        "risk_score": 90,
+        "trust_level": "ISOLATED",
+        "signals": ["CANARY_INTERACTION"]
+      }
+    }
+  ]
+}

@@ -137,12 +137,11 @@ def test_501_stubs_return_standard_error_and_owner_tags(
     client: TestClient,
     merchant_auth_headers: dict,
 ):
-    """Verify all 5 typed stubs return 501 with the standard error body and owner metadata."""
+    """Verify the remaining typed stubs return 501 with the standard error body and owner metadata."""
     sample_uuid = str(uuid.uuid4())
 
     endpoints = [
         ("GET", "/v1/stream", {}),
-        ("GET", f"/v1/identities/{sample_uuid}/twin", {}),
         ("POST", f"/v1/signatures/{sample_uuid}/approve", {}),
         ("GET", f"/v1/evidence/verify?evidence_id={sample_uuid}", {}),
         ("POST", "/v1/simulate/attack", {}),
@@ -159,3 +158,20 @@ def test_501_stubs_return_standard_error_and_owner_tags(
         assert "error" in data
         assert data["error"]["code"] == "NOT_IMPLEMENTED"
         assert "owner" in data["error"]["details"]
+
+
+def test_behavioral_twin_stub_is_replaced_by_implementation(
+    client: TestClient,
+    merchant_auth_headers: dict,
+):
+    """Person 2: the behavioural twin endpoint is implemented, not a 501 stub.
+
+    The stub was removed once the twin viewer shipped, so the endpoint must
+    answer with a domain response (404 for an unknown identity) instead of
+    the NOT_IMPLEMENTED payload.
+    """
+    sample_uuid = str(uuid.uuid4())
+    res = client.get(f"/v1/identities/{sample_uuid}/twin", headers=merchant_auth_headers)
+    assert res.status_code == 404
+    data = res.json()
+    assert data["error"]["code"] == "IDENTITY_NOT_FOUND"

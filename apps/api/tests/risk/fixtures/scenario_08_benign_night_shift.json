@@ -1,0 +1,71 @@
+{
+  "scenario_id": "benign_night_shift",
+  "title": "Benign night shift operator (false positive control)",
+  "description": "A legitimate night shift operator always works at 03:00 local time. The engine must not flag off-hours activity for an identity whose baseline matches, and it must not decay or escalate the session score for settled behaviour.",
+  "identity": {
+    "device_id": "device-night",
+    "ip_address": "203.0.113.44",
+    "location": "Bengaluru",
+    "active_local_hour": 3
+  },
+  "expect_attack_learning": true,
+  "baseline": [
+    {
+      "action": "payee.add",
+      "event_type": "payee.added",
+      "device_id": "device-night",
+      "ip_address": "203.0.113.44",
+      "location": "Bengaluru",
+      "local_time": "03:00",
+      "day_offset": -3,
+      "recipient": "nightpayroll@vendor.com",
+      "repeat": 2,
+      "repeat_spacing_minutes": 1
+    },
+    {
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-night",
+      "ip_address": "203.0.113.44",
+      "location": "Bengaluru",
+      "local_time": "03:02",
+      "day_offset": -3,
+      "repeat": 12,
+      "repeat_spacing_minutes": 1
+    }
+  ],
+  "attack": [
+    {
+      "step": 1,
+      "action": "auth.login",
+      "event_type": "auth.login",
+      "device_id": "device-night",
+      "ip_address": "203.0.113.44",
+      "location": "Bengaluru",
+      "local_time": "03:30",
+      "day_offset": 0,
+      "expected": {
+        "risk_score": 0,
+        "trust_level": "NORMAL",
+        "signals": []
+      }
+    },
+    {
+      "step": 2,
+      "action": "payout.submit",
+      "event_type": "payout.submit",
+      "device_id": "device-night",
+      "ip_address": "203.0.113.44",
+      "location": "Bengaluru",
+      "local_time": "03:35",
+      "day_offset": 0,
+      "amount": 120.0,
+      "recipient": "nightpayroll@vendor.com",
+      "expected": {
+        "risk_score": 0,
+        "trust_level": "NORMAL",
+        "signals": []
+      }
+    }
+  ]
+}

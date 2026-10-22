@@ -1335,6 +1335,122 @@
         }
       }
     },
+    "/v1/identities/{id}/twin": {
+      "get": {
+        "tags": [
+          "Behavioral Identity Twin (Person 2 - Risk Intelligence)"
+        ],
+        "summary": "Fetch behavioural identity twin profile",
+        "description": "Returns the behavioural baseline (devices, locations, payees, active hours) established for one identity inside the authenticated merchant domain.",
+        "operationId": "get_identity_twin_v1_identities__id__twin_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "compare_session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional session to compare against the established twin baseline",
+              "title": "Compare Session Id"
+            },
+            "description": "Optional session to compare against the established twin baseline"
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwinProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/stream": {
       "get": {
         "tags": [
@@ -1350,50 +1466,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StandardErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/identities/{id}/twin": {
-      "get": {
-        "tags": [
-          "Behavioral Identity Twin (Person 2 - Risk Intelligence)"
-        ],
-        "summary": "Fetch behavioral identity twin profile",
-        "description": "Behavioral model baseline and biometric deviation parameters stub. To be implemented by Person 2.",
-        "operationId": "get_identity_twin_v1_identities__id__twin_get",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Id"
-            }
-          }
-        ],
-        "responses": {
-          "501": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StandardErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1711,6 +1783,7 @@
           "navigation.pageview",
           "payout.attempt",
           "payout.submit",
+          "payee.added",
           "security.mfa_challenge",
           "security.anomaly_detected"
         ],
@@ -2501,6 +2574,207 @@
           "ISOLATED"
         ],
         "title": "TrustLevel"
+      },
+      "TwinDeviationResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "risk_score": {
+            "type": "number",
+            "title": "Risk Score"
+          },
+          "trust_level": {
+            "$ref": "#/components/schemas/TrustLevel"
+          },
+          "risk_signals": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Risk Signals"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Codes"
+          },
+          "is_new_device": {
+            "type": "boolean",
+            "title": "Is New Device",
+            "default": false
+          },
+          "is_new_location": {
+            "type": "boolean",
+            "title": "Is New Location",
+            "default": false
+          },
+          "is_unusual_hour": {
+            "type": "boolean",
+            "title": "Is Unusual Hour",
+            "default": false
+          },
+          "is_new_payee": {
+            "type": "boolean",
+            "title": "Is New Payee",
+            "default": false
+          },
+          "is_large_payout": {
+            "type": "boolean",
+            "title": "Is Large Payout",
+            "default": false
+          },
+          "session_carried_forward": {
+            "type": "number",
+            "title": "Session Carried Forward",
+            "default": 0.0
+          },
+          "raw_points_sum": {
+            "type": "number",
+            "title": "Raw Points Sum",
+            "default": 0.0
+          },
+          "decay_points": {
+            "type": "number",
+            "title": "Decay Points",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "risk_score",
+          "trust_level"
+        ],
+        "title": "TwinDeviationResponse",
+        "description": "Deviation of a live session from the established twin baseline."
+      },
+      "TwinProfileResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Merchant Id"
+          },
+          "twin_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Twin Id"
+          },
+          "sample_count": {
+            "type": "integer",
+            "title": "Sample Count",
+            "default": 0
+          },
+          "is_provisional": {
+            "type": "boolean",
+            "title": "Is Provisional",
+            "default": true
+          },
+          "confirmed_device_count": {
+            "type": "integer",
+            "title": "Confirmed Device Count",
+            "default": 0
+          },
+          "confirmed_location_count": {
+            "type": "integer",
+            "title": "Confirmed Location Count",
+            "default": 0
+          },
+          "confirmed_payee_count": {
+            "type": "integer",
+            "title": "Confirmed Payee Count",
+            "default": 0
+          },
+          "pending_payee_count": {
+            "type": "integer",
+            "title": "Pending Payee Count",
+            "default": 0
+          },
+          "active_hours": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Active Hours"
+          },
+          "hour_histogram": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Hour Histogram"
+          },
+          "total_amount": {
+            "type": "number",
+            "title": "Total Amount",
+            "default": 0.0
+          },
+          "amount_count": {
+            "type": "integer",
+            "title": "Amount Count",
+            "default": 0
+          },
+          "device_fingerprints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Device Fingerprints"
+          },
+          "location_buckets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Location Buckets"
+          },
+          "last_updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated At"
+          },
+          "deviation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TwinDeviationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "merchant_id"
+        ],
+        "title": "TwinProfileResponse",
+        "description": "Behavioural baseline of one identity plus optional live deviation."
       },
       "ValidationError": {
         "properties": {

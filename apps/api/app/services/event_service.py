@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -83,6 +84,10 @@ class EventService:
         context["event_type"] = request.event_type.value
         context["action"] = request.action
 
+        # Person 2 (additive): a stable event id lets the risk engine
+        # deduplicate replayed events inside a session.
+        event_id = uuid.uuid4()
+
         risk_req = RiskEvaluationRequest(
             session_id=session.session_id,
             merchant_id=principal.merchant_id,
@@ -93,6 +98,11 @@ class EventService:
                 request.metadata.get("recipient_email", request.metadata.get("recipient", ""))
             ),
             context=context,
+            occurred_at=request.occurred_at,
+            event_id=event_id,
+            device_id=request.device_id,
+            ip_address=request.ip_address,
+            event_type=request.event_type.value,
         )
 
         risk_result = self.risk_engine.evaluate(self.db, session, risk_req)
@@ -128,6 +138,7 @@ class EventService:
 
         # 6. Persist SecurityEvent record
         db_event = SecurityEvent(
+            event_id=event_id,
             session_id=session.session_id,
             merchant_id=principal.merchant_id,
             user_id=principal.user_id,

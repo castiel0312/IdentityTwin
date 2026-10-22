@@ -7,6 +7,7 @@ from app.models.principal import Merchant, User
 from app.models.risk import RiskDecisionRecord
 from app.models.session import SessionRecord
 from app.models.step_up import StepUpChallenge
+from app.models.twin import BehavioralTwin, SessionRiskStateRecord
 
 __all__ = [
     "Base",
@@ -21,4 +22,6 @@ __all__ = [
     "AnalystActionRecord",
     "IdempotencyRecord",
     "StepUpChallenge",
+    "BehavioralTwin",
+    "SessionRiskStateRecord",
 ]
