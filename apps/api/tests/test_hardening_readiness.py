@@ -181,6 +181,32 @@ def test_canary_event_forces_immediate_level_3_isolation(
     assert "CANARY_INTERACTION" in str(inc.evidence_summary)
 
 
+def _install_mocked_paypal_verifier(monkeypatch, verification_status: str = "SUCCESS"):
+    """
+    Point the gateway webhook verifier at a mocked PayPal verification API.
+
+    No real socket is opened: the adapter talks to an httpx.MockTransport on a
+    reserved ".test" host.
+    """
+    from app.gateway.provider import paypal_sandbox_provider_instance
+
+    def _handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/oauth2/token":
+            return httpx.Response(
+                200, json={"access_token": "test-access-token", "expires_in": 3600}
+            )
+        if request.url.path == "/v1/notifications/verify-webhook-signature":
+            return httpx.Response(200, json={"verification_status": verification_status})
+        raise AssertionError(f"Unexpected PayPal request: {request.method} {request.url}")
+
+    monkeypatch.setattr(paypal_sandbox_provider_instance, "client_id", "test-client-id")
+    monkeypatch.setattr(paypal_sandbox_provider_instance, "client_secret", "test-client-secret")
+    monkeypatch.setattr(paypal_sandbox_provider_instance, "webhook_id", "WH-TEST")
+    monkeypatch.setattr(paypal_sandbox_provider_instance, "base_url", "https://paypal-sandbox.test")
+    monkeypatch.setattr(paypal_sandbox_provider_instance, "transport", httpx.MockTransport(_handle))
+    monkeypatch.setattr(paypal_sandbox_provider_instance, "_token_cache", None)
+
+
 def test_paypal_webhook_invalid_signature_rejected(client: TestClient):
     """
     Scenario 15:
@@ -203,11 +229,40 @@ def test_paypal_webhook_invalid_signature_rejected(client: TestClient):
     assert res.json()["error"]["code"] == "INVALID_WEBHOOK_SIGNATURE"
 
 
-def test_paypal_webhook_valid_signature_and_deduplication(client: TestClient):
+def test_paypal_webhook_plausible_signature_without_verification_rejected(client: TestClient):
+    """
+    Scenario 15:
+    A signature that merely looks plausible is NOT a verified webhook.
+
+    The receiver used to accept such a signature when the PayPal webhook
+    configuration was missing; verification is fail-closed now, so the event
+    is rejected even though every transmission header is present.
+    """
+    headers = {
+        "paypal-auth-algo": "SHA256withRSA",
+        "paypal-cert-url": "https://api.sandbox.paypal.com/v1/certs/test",
+        "paypal-transmission-id": "trans-plausible-" + str(uuid.uuid4()),
+        "paypal-transmission-sig": "TOTALLY-PLAUSIBLE-LOOKING-SIGNATURE",
+        "paypal-transmission-time": "2026-10-21T14:30:00Z",
+    }
+    payload = {
+        "id": "WH-TEST-PLAUSIBLE",
+        "event_type": "PAYMENT.PAYOUTSBATCH.SUCCESS",
+        "resource": {"payout_batch_id": "BATCH-123"},
+    }
+    res = client.post("/v1/webhooks/paypal", json=payload, headers=headers)
+    assert res.status_code == 400
+    assert res.json()["error"]["code"] == "INVALID_WEBHOOK_SIGNATURE"
+
+
+def test_paypal_webhook_valid_signature_and_deduplication(client: TestClient, monkeypatch):
     """
     Scenario 15 & 10:
-    Valid PayPal webhook processes successfully and deduplicates subsequent retries.
+    A webhook is accepted only after PayPal confirms the signature, and a
+    replay of the same verified event is deduplicated.
     """
+    _install_mocked_paypal_verifier(monkeypatch)
+
     event_id = "WH-SUCCESS-" + str(uuid.uuid4())
     headers = {
         "paypal-auth-algo": "SHA256withRSA",

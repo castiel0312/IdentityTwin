@@ -1584,10 +1584,347 @@
           }
         }
       }
+    },
+    "/v1/agentic/payouts": {
+      "post": {
+        "tags": [
+          "Agentic Commerce"
+        ],
+        "summary": "Submit an AI agent initiated payout through the Trust Gateway",
+        "description": "Internal agentic commerce contract (Person 3). The caller states which registered agent is acting and which delegation authorizes it; the server resolves the agent identity, the authorization context and the merchant identity, then normalizes the request into the canonical payout request handled by the Trust Gateway. No payment provider is contacted from this endpoint and no trust state can be asserted by the caller.",
+        "operationId": "submit_agentic_payout_v1_agentic_payouts_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgenticCommerceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgenticCommerceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AgenticCommerceRequest": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Agent Id",
+            "description": "Registered agent that initiates the request"
+          },
+          "authorization_grant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Authorization Grant Id",
+            "description": "Delegation grant issued to the agent for this merchant user"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id",
+            "description": "Merchant session the agent acts within"
+          },
+          "recipient_email": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 5,
+            "title": "Recipient Email",
+            "description": "Recipient of the agent initiated payment"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Amount",
+            "description": "Amount to disburse (maximum 100,000.00)"
+          },
+          "currency": {
+            "type": "string",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "description": "ISO-4217 3-letter currency code",
+            "default": "USD"
+          },
+          "reference_note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Note",
+            "description": "Business reference or agent supplied note"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Idempotency Key",
+            "description": "Caller supplied idempotency key, preserved verbatim by the adapter"
+          },
+          "step_up_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Up Token",
+            "description": "Optional step-up verification token for restricted sessions"
+          },
+          "agent_intent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Intent",
+            "description": "Optional description of the agent intent, recorded for audit only"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "agent_id",
+          "authorization_grant_id",
+          "session_id",
+          "recipient_email",
+          "amount",
+          "idempotency_key"
+        ],
+        "title": "AgenticCommerceRequest",
+        "description": "An AI agent initiated commerce / payout request.\n\nThis is the inbound half of the internal adapter contract. It carries the\nagent reference, the authorization reference and the intended transaction.\nIt carries no identity claim: merchant, user and session authority are\nresolved from the authenticated principal and the server side registry."
+      },
+      "AgenticCommerceResponse": {
+        "properties": {
+          "payout_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Payout Id"
+          },
+          "decision_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Decision Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "'completed' | 'rejected' | 'decoy_completed' | 'blocked'"
+          },
+          "trust_level": {
+            "$ref": "#/components/schemas/TrustLevel"
+          },
+          "action": {
+            "$ref": "#/components/schemas/GatewayAction"
+          },
+          "routing_destination": {
+            "$ref": "#/components/schemas/RoutingDestination"
+          },
+          "risk_score": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Risk Score"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Codes"
+          },
+          "provider_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Reference",
+            "description": "Transaction reference returned by provider adapter (synthetic for mock)"
+          },
+          "amount": {
+            "type": "number",
+            "title": "Amount"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          },
+          "recipient_email": {
+            "type": "string",
+            "title": "Recipient Email"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "is_duplicate": {
+            "type": "boolean",
+            "title": "Is Duplicate",
+            "description": "True if response was served from idempotency cache",
+            "default": false
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Agent Id"
+          },
+          "agent_display_name": {
+            "type": "string",
+            "title": "Agent Display Name"
+          },
+          "agent_type": {
+            "type": "string",
+            "title": "Agent Type"
+          },
+          "authorization_grant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Authorization Grant Id"
+          },
+          "delegated_by_user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Delegated By User Id"
+          },
+          "agent_intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Intent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "payout_id",
+          "decision_id",
+          "session_id",
+          "status",
+          "trust_level",
+          "action",
+          "routing_destination",
+          "risk_score",
+          "reason_codes",
+          "amount",
+          "currency",
+          "recipient_email",
+          "created_at",
+          "agent_id",
+          "agent_display_name",
+          "agent_type",
+          "authorization_grant_id",
+          "delegated_by_user_id"
+        ],
+        "title": "AgenticCommerceResponse",
+        "description": "Trust Gateway outcome for an agent initiated request.\n\nThe gateway response is preserved verbatim and the agent provenance is\nattached, so the caller can attribute the result to the acting agent."
+      },
       "ErrorDetail": {
         "properties": {
           "code": {

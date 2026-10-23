@@ -1,3 +1,8 @@
+from app.models.agent import (
+    AgentAuthorizationGrant,
+    AgenticCommerceAudit,
+    AgentRegistration,
+)
 from app.models.base import Base, TimestampMixin
 from app.models.event import SecurityEvent
 from app.models.idempotency import IdempotencyRecord
@@ -12,6 +17,9 @@ from app.models.twin import BehavioralTwin, SessionRiskStateRecord
 __all__ = [
     "Base",
     "TimestampMixin",
+    "AgentRegistration",
+    "AgentAuthorizationGrant",
+    "AgenticCommerceAudit",
     "Merchant",
     "User",
     "SessionRecord",

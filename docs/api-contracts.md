@@ -375,6 +375,18 @@ Receives and reconciles asynchronous notifications from PayPal Sandbox via the T
   "message": "PayPal webhook event verified, deduplicated, and reconciled successfully."
 }
 ```
+- **Signature Verification**: The event is verified with PayPal's own
+  `POST /v1/notifications/verify-webhook-signature` endpoint using the
+  configured `PAYPAL_WEBHOOK_ID`. The event is accepted **only** when PayPal
+  answers `"verification_status": "SUCCESS"`.
+- **Fail-Closed Rejections** (all return HTTP 400 with `INVALID_WEBHOOK_SIGNATURE`):
+  a missing transmission header, a missing `PAYPAL_WEBHOOK_ID` or missing
+  credentials (PayPal is not contacted at all), a body that is not a JSON
+  object, a PayPal `FAILURE` verification, a provider error status, a malformed
+  provider response, and a timeout or network failure.
+- **No Development Bypass**: A signature that merely looks plausible is never
+  accepted, in any environment. The mock payout adapter cannot verify
+  signatures and therefore never accepts a webhook.
 - **Error Response** (400 Bad Request): Returned when signature verification fails (`INVALID_WEBHOOK_SIGNATURE`).
 
 ---
@@ -454,3 +466,79 @@ Returns the behavioural baseline established for one identity inside the authent
 - **No raw identifiers**: device fingerprints are stored and returned only as salted SHA-256 digests; locations are returned as coarse buckets.
 - **Errors**: HTTP 404 `IDENTITY_NOT_FOUND` for an unknown identity, HTTP 404 `TWIN_NOT_FOUND` when no twin has been established yet, HTTP 404 `SESSION_NOT_FOUND` for an unknown `compare_session_id`.
 
+
+---
+
+## 9. Agentic Commerce (Person 3 - Internal Adapter Contract)
+
+### `POST /v1/agentic/payouts`
+Accepts an AI agent initiated payout, normalizes it into the canonical Trust
+Gateway request and executes it through the same gateway path as
+`POST /v1/payouts`. The contract is **internal** (no third-party agentic
+payment specification is implemented); see `docs/agentic-commerce.md`.
+
+- **Auth**: Required (`merchant` role). A delegation grant is **not** a
+  credential: the caller must additionally present a valid merchant session.
+- **Request Body**:
+```json
+{
+  "agent_id": "77777777-7777-7777-7777-777777777777",
+  "authorization_grant_id": "88888888-8888-8888-8888-888888888888",
+  "session_id": "22222222-2222-2222-2222-222222222222",
+  "recipient_email": "vendor@example.com",
+  "amount": 120.00,
+  "currency": "USD",
+  "reference_note": "Settle invoice 8842",
+  "idempotency_key": "agentic-order-8842",
+  "step_up_token": null,
+  "agent_intent": "Settle invoice 8842 for the merchant"
+}
+```
+- **Response** (200 OK): the full Trust Gateway payout response plus agent provenance:
+```json
+{
+  "payout_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "decision_id": "9c8a7b6a-5432-10fe-dcba-9876543210ab",
+  "session_id": "22222222-2222-2222-2222-222222222222",
+  "status": "completed",
+  "trust_level": "NORMAL",
+  "action": "ALLOW",
+  "routing_destination": "PROVIDER_MOCK",
+  "risk_score": 0.0,
+  "reason_codes": ["BASELINE_NORMAL_OPERATION"],
+  "provider_reference": "SYNTH-MOCK-TXN-A1B2C3D4E5F6",
+  "amount": 120.00,
+  "currency": "USD",
+  "recipient_email": "vendor@example.com",
+  "created_at": "2026-10-21T14:30:00Z",
+  "is_duplicate": false,
+  "agent_id": "77777777-7777-7777-7777-777777777777",
+  "agent_display_name": "Acme Shopping Assistant",
+  "agent_type": "shopping_assistant",
+  "authorization_grant_id": "88888888-8888-8888-8888-888888888888",
+  "delegated_by_user_id": "11111111-1111-1111-1111-111111111111",
+  "agent_intent": "Settle invoice 8842 for the merchant"
+}
+```
+- **Rejections** (HTTP 403, error envelope as described above):
+  `AGENT_NOT_REGISTERED`, `AGENT_MERCHANT_MISMATCH`, `AGENT_NOT_ACTIVE`,
+  `AGENT_AUTHORIZATION_MISSING`, `AGENT_AUTHORIZATION_AGENT_MISMATCH`,
+  `AGENT_AUTHORIZATION_MERCHANT_MISMATCH`, `AGENT_AUTHORIZATION_PRINCIPAL_MISMATCH`,
+  `AGENT_AUTHORIZATION_REVOKED`, `AGENT_AUTHORIZATION_CONSUMED`,
+  `AGENT_AUTHORIZATION_EXPIRED`, `AGENT_AUTHORIZATION_SESSION_MISMATCH`,
+  `AGENT_SCOPE_NOT_GRANTED`, `AGENT_AMOUNT_LIMIT_EXCEEDED`.
+- **Conflicts** (HTTP 409): `AGENT_IDEMPOTENCY_KEY_CONFLICT` when the key is
+  already bound to another execution context (a human payout or another agent).
+
+**Invariants**:
+- **No bypass**: the agentic path never contacts a payment provider directly; it
+  delegates to the Trust Gateway, which owns every routing and provider decision.
+- **Server owned identity**: merchant identity comes from the authenticated
+  principal, agent identity from the agent registry. Trust level, risk score,
+  merchant id and any other unknown field are rejected (HTTP 422).
+- **Risk parity**: agent traffic is evaluated by the same risk engine, so
+  `RESTRICTED` requires step-up, `DECOY` reaches only the honey workspace and
+  `ISOLATED` is blocked and raises an incident.
+- **Idempotency**: the caller supplied key is preserved verbatim; a retry
+  returns the cached result (`is_duplicate: true`) and never executes twice.
+- **Attribution**: every authorized attempt is recorded in `agentic_commerce_audit`.

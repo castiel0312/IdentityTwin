@@ -4,11 +4,12 @@ Seed script for IdentityTwin local demo and development environments.
 Seeds test merchants, users, sessions in different trust levels, and test incidents.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
+from app.models.agent import AgentAuthorizationGrant, AgentRegistration, AgentStatus
 from app.models.incident import IncidentRecord
 from app.models.principal import Merchant, User
 from app.models.session import SessionRecord
@@ -25,6 +26,10 @@ DECOY_SESSION_ID = UUID("44444444-4444-4444-4444-444444444444")
 ISOLATED_SESSION_ID = UUID("55555555-5555-5555-5555-555555555555")
 
 DEMO_INCIDENT_ID = UUID("66666666-6666-6666-6666-666666666666")
+
+DEMO_AGENT_ID = UUID("77777777-7777-7777-7777-777777777777")
+DEMO_AGENT_GRANT_ID = UUID("88888888-8888-8888-8888-888888888888")
+DEMO_AGENT_SCOPE = "payout:execute"
 
 
 def seed() -> None:
@@ -146,6 +151,46 @@ def seed() -> None:
             db.add(incident)
             print(f"Created demo incident: {DEMO_INCIDENT_ID}")
 
+        # 5. Agentic commerce registry: a registered AI agent and the
+        # delegation grant that authorizes it for the demo merchant user.
+        agent = db.query(AgentRegistration).filter_by(agent_id=DEMO_AGENT_ID).first()
+        if not agent:
+            agent = AgentRegistration(
+                agent_id=DEMO_AGENT_ID,
+                merchant_id=DEMO_MERCHANT_ID,
+                display_name="Acme Shopping Assistant",
+                agent_type="shopping_assistant",
+                vendor="identitytwin-demo",
+                scopes=[DEMO_AGENT_SCOPE],
+                status=AgentStatus.ACTIVE,
+                max_payout_amount=500.0,
+                is_active=True,
+                description="Demo agent allowed to settle merchant payouts up to 500.00.",
+            )
+            db.add(agent)
+            print(f"Created demo agent: {DEMO_AGENT_ID}")
+
+        grant = (
+            db.query(AgentAuthorizationGrant)
+            .filter_by(grant_id=DEMO_AGENT_GRANT_ID)
+            .first()
+        )
+        if not grant:
+            grant = AgentAuthorizationGrant(
+                grant_id=DEMO_AGENT_GRANT_ID,
+                agent_id=DEMO_AGENT_ID,
+                merchant_id=DEMO_MERCHANT_ID,
+                user_id=DEMO_MERCHANT_USER_ID,
+                session_id=None,
+                scopes=[DEMO_AGENT_SCOPE],
+                max_amount=250.0,
+                issued_at=now,
+                expires_at=now + timedelta(days=30),
+                delegated_by_user_id=DEMO_MERCHANT_USER_ID,
+            )
+            db.add(grant)
+            print(f"Created demo agent grant: {DEMO_AGENT_GRANT_ID}")
+
         db.commit()
         print("\nDemo seeding successfully completed!")
         print("----------------------------------------------------------------")
@@ -157,6 +202,8 @@ def seed() -> None:
         print(f"Decoy Session:        {DECOY_SESSION_ID} (Trust: DECOY)")
         print(f"Isolated Session:     {ISOLATED_SESSION_ID} (Trust: ISOLATED)")
         print(f"Demo Incident:        {DEMO_INCIDENT_ID}")
+        print(f"Demo Agent ID:        {DEMO_AGENT_ID}")
+        print(f"Demo Agent Grant ID:  {DEMO_AGENT_GRANT_ID}")
         print("----------------------------------------------------------------")
 
     finally:

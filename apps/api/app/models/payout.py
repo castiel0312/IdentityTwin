@@ -49,7 +49,7 @@ class PayoutRequestRecord(Base, TimestampMixin):
     reference_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
-    provider_name: Mapped[str] = mapped_column(String(32), default="mock", nullable=False)
+    provider_name: Mapped[str] = mapped_column(String(32), default="none", nullable=False)
     provider_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
     provider_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

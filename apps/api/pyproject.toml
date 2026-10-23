@@ -30,6 +30,26 @@ dev = [
     "ruff>=0.1.0",
 ]
 
+# Packaging
+#
+# The API is distributed as a single top-level package ("app"). This
+# directory is a flat layout, so setuptools would otherwise auto-discover
+# "app" AND "alembic" (the migration directory) as two top-level packages
+# and abort the build. Discovery is therefore explicit:
+#
+#   * include  -> only the application package and its subpackages,
+#   * exclude  -> the migration directory and the test suite, which are
+#                 development scaffolding and must never be imported as
+#                 installed packages ("alembic" in particular would shadow
+#                 the real Alembic library used for migrations),
+#   * namespaces-> "app" and several of its subpackages intentionally have no
+#                 __init__.py, so PEP 420 namespace discovery is required.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app", "app.*"]
+exclude = ["tests", "tests.*", "alembic", "alembic.*"]
+namespaces = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

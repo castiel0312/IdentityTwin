@@ -24,6 +24,7 @@ PYTHONPATH=apps/api python scripts/export_openapi.py
   - `POST /v1/events` for sending keystroke/mouse/navigation telemetry.
   - `GET /v1/sessions` and `GET /v1/sessions/{session_id}` for session trust badges.
   - `POST /v1/payouts` for executing protected merchant payouts.
+  - `POST /v1/agentic/payouts` for AI agent initiated payouts (internal adapter contract, see `docs/agentic-commerce.md`).
   - `GET /v1/incidents` and `POST /v1/incidents/{incident_id}/approve` for analyst dashboard.
 
 ### 2. Risk Intelligence Teammate (Person 2)
@@ -39,6 +40,7 @@ PYTHONPATH=apps/api python scripts/export_openapi.py
 - Implement `PayPalSandboxAdapter` communicating with PayPal Sandbox REST APIs (v1/payments/payouts).
 - Map real PayPal transaction IDs to `provider_reference` and preserve full provider response in `provider_payload`.
 - **CRITICAL INVARIANT**: Your adapter will ONLY be invoked when the Gateway evaluates trust state as `NORMAL` / `ALLOW`. Under `RESTRICTED`, `DECOY`, or `ISOLATED`, the Gateway guarantees your adapter is NEVER called.
+- Agentic commerce: the internal adapter `apps/api/app/gateway/agentic.py` (`IAgenticCommerceAdapter`) normalizes AI agent requests into the canonical `PayoutRequest` and delegates to the Trust Gateway. It never imports a provider adapter: agent traffic reaches PayPal only through the gateway. Contract: `docs/agentic-commerce.md`.
 
 ### 4. Honey Workspace Teammate (Person 4)
 - Interface to implement: `apps/api/app/gateway/provider.py` (`DecoyHoneyAdapter`).

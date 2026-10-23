@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-red.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/Tests-48%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-435%20Passed-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)]()
 
 ---
@@ -99,20 +99,21 @@ IdentityTwin/
 │       │   │       ├── sessions.py         # GET /v1/sessions & GET /v1/sessions/{id}
 │       │   │       └── incidents.py        # GET & POST /v1/incidents (analyst approval)
 │       │   ├── schemas/                    # Pydantic request/response schemas
-│       │   ├── models/                     # SQLAlchemy 2.0 ORM models
+│       │   ├── models/                     # SQLAlchemy 2.0 ORM models (incl. agent registry)
 │       │   ├── db/
 │       │   │   ├── session.py              # Engine, SessionLocal, get_db, readiness probe
 │       │   │   └── repositories/           # Session, Event, Payout, Incident, Idempotency repos
 │       │   ├── gateway/
 │       │   │   ├── service.py              # Central TrustGatewayService (9-step execution)
+│       │   │   ├── agentic.py              # Internal agentic commerce adapter & service
 │       │   │   ├── policy.py               # Centralized TrustGatewayPolicy routing rules
 │       │   │   ├── routing.py              # Routing decision models & destinations
-│       │   │   └── provider.py             # MockPaymentProviderAdapter & DecoyHoneyAdapter
+│       │   │   └── provider.py             # Mock, PayPal Sandbox & honey decoy adapters
 │       │   ├── risk/
 │       │   │   ├── service.py              # Deterministic baseline risk engine & interface
 │       │   │   └── schemas.py              # Risk evaluation models, named signals
 │       │   └── services/                   # EventService, IncidentService
-│       ├── tests/                          # 48 comprehensive automated tests
+│       ├── tests/                          # 435 comprehensive automated tests
 │       ├── alembic/                        # Database migration scripts
 │       ├── alembic.ini                     # Alembic configuration
 │       ├── pyproject.toml                  # Python package configuration & dependencies
@@ -123,6 +124,7 @@ IdentityTwin/
 │       └── openapi.json                    # Exported OpenAPI 3.1.0 specification
 ├── docs/
 │   ├── architecture.md                     # Architecture specification & Mermaid diagram
+│   ├── agentic-commerce.md                 # Internal agentic commerce contract (Person 3)
 │   ├── api-contracts.md                    # Detailed endpoint contracts and JSON payloads
 │   ├── security-boundaries.md              # Security boundaries & production roadmap
 │   └── local-development.md                # Local setup guide & command reference
@@ -146,6 +148,13 @@ cp .env.example .env
 make install
 ```
 
+`make install` creates `.venv` and installs the API package in editable mode
+(`pip install -e "apps/api[dev]"`). To install it by hand instead:
+```bash
+cd apps/api && python -m pip install -e ".[dev]"
+```
+See [`docs/local-development.md`](docs/local-development.md) §2.1.
+
 ### 2. Run Migrations & Seed Demo Data
 ```bash
 make migrate
@@ -167,7 +176,7 @@ API runs on `http://localhost:8000`.
 
 ## 5. Automated Tests & Quality Checks
 
-Run the automated test suite across all 63 test scenarios (covering all security boundaries, step-up verification, provider isolation matrix, and AST bypass checks):
+Run the automated test suite (435 tests covering all security boundaries, step-up verification, provider isolation matrix, agentic commerce authorization, and AST bypass checks):
 
 ```bash
 make test
@@ -190,9 +199,9 @@ make openapi
 
 | Teammate | Focus Area | Integration Touchpoint | Status |
 | :--- | :--- | :--- | :--- |
-| **Frontend** | React Dashboard | `packages/contracts/openapi.json` — Generate TypeScript types via `npx openapi-typescript`. | Contract Ready (19 paths) |
+| **Frontend** | React Dashboard | `packages/contracts/openapi.json` — Generate TypeScript types via `npx openapi-typescript`. | Contract Ready (20 paths) |
 | **Person 2** | Risk Intelligence | Implement `IRiskEngineService` in `app/risk/service.py`. Consume `SecurityEvent` telemetry. | 7 Named Signals Connected |
-| **Person 3** | PayPal Integration | `PayPalSandboxAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox credentials in `.env`. | Sandbox Adapter Ready |
+| **Person 3** | PayPal Integration | `PayPalSandboxAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox credentials in `.env`. Internal agentic commerce adapter in `app/gateway/agentic.py` (`POST /v1/agentic/payouts`). | Sandbox Adapter Ready |
 | **Person 4** | Honey Workspace | `DecoyHoneyAdapter` in `app/gateway/provider.py`. Confinement routing is automated. | Honey Routing Verified |
 | **Person 5** | Evidence & Incidents | Consume `SecurityEvent`, `RiskDecisionRecord`, and `AnalystActionRecord` from database. | Evidence Integrity Ready |
 | **Person 6** | AI Investigator | Read incident telemetry via `GET /v1/incidents/{id}`. | Read API Ready |
@@ -213,12 +222,70 @@ To connect live PayPal Sandbox credentials for demo execution:
    PAYPAL_WEBHOOK_ID="<your_webhook_id>"
    PAYPAL_BASE_URL="https://api-m.sandbox.paypal.com"
    ```
+   `PAYPAL_BASE_URL` is **validated at startup against an explicit allowlist**
+   of official PayPal Sandbox hosts (`api-m.sandbox.paypal.com` only). Any
+   other value — the production host, a lookalike, a legacy Sandbox host, a
+   non-`https` scheme, an embedded credential, a non-default port, or a URL
+   with a path/query — aborts startup with a configuration error. The adapter
+   enforces the same allowlist when it is built without an injected test
+   transport, so a bad value cannot reach the network even if it bypasses
+   settings initialization. Tests inject an `httpx.MockTransport` to point the
+   adapter at a fake host without weakening this check.
+   `PAYMENT_PROVIDER` is validated the same way: only `mock` or
+   `paypal_sandbox` are accepted, and selecting `paypal_sandbox` with a missing
+   or blank `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` **aborts startup**.
+   Unknown values never silently fall back to the mock provider. The mock
+   workflow never requires PayPal credentials.
 4. Normal eligible payouts (`TrustLevel.NORMAL`) will automatically execute via official PayPal Payouts REST API (`/v1/payments/payouts`) with `PayPal-Request-Id` idempotency tracking.
-5. In the absence of live PayPal credentials, the platform defaults to `PAYMENT_PROVIDER="mock"`, providing safe synthetic transactions without network dependencies.
+5. In the absence of live PayPal credentials, use `PAYMENT_PROVIDER="mock"`, which provides safe synthetic transactions without network dependencies. Explicitly selecting `paypal_sandbox` without credentials is a startup error, not an automatic fallback.
+6. **Webhook Verification**: `POST /v1/webhooks/paypal` verifies every delivery with PayPal's own `/v1/notifications/verify-webhook-signature` endpoint using `PAYPAL_WEBHOOK_ID`. A delivery is accepted only when PayPal answers `verification_status: SUCCESS`; a missing webhook id, a missing credential, a failed verification and a provider outage are all rejected with HTTP 400. See `docs/local-development.md` §7 for the local setup.
 
 ### Security Invariants & Notes
-1. **Never Real Money**: The system is hardcoded to use PayPal Sandbox endpoints (`https://api-m.sandbox.paypal.com`) and synthetic demo data. Under no circumstances are live production credentials or real-money movements permitted.
+1. **Sandbox-Only Boundary**: The system is restricted to the PayPal Sandbox. The only accepted `PAYPAL_BASE_URL` is `https://api-m.sandbox.paypal.com`; the settings initializer rejects every production, lookalike, malformed or insecure value (see `apps/api/app/core/config.py`) and the adapter re-validates any programmatic override that is not paired with a mocked test transport. This is a configuration boundary, not a guarantee that live PayPal behaviour has been verified — see `docs/p3-paypal-integration-handoff.md` for what is tested versus untested against the real Sandbox.
 2. **Development Authentication**: Uses static Bearer tokens and `X-Dev-*` headers for rapid local testing. In production (`ENVIRONMENT=production`), development authentication is strictly rejected; enterprise OIDC/OAuth2 with cryptographic JWKS validation must be configured.
 3. **Canary Interaction Protection**: Any canary interaction immediately triggers Level 3 isolation, revokes the user session, and records an auditable incident regardless of initial risk score.
 
 
+
+---
+
+## 8. Agentic Commerce Integration (Person 3)
+
+AI agents can act faster than any human, so IdentityTwin gives them **no privilege of their own**: an agent request is a *shape* that must be normalized into the canonical Trust Gateway request before anything can happen.
+
+```
+Agent request ──▶ internal adapter (authorize + normalize) ──▶ Trust Gateway ──▶ Provider / Honey / Block
+```
+
+- **Endpoint**: `POST /v1/agentic/payouts` (`apps/api/app/api/routes/agentic.py`).
+- **Adapter**: `IAgenticCommerceAdapter` / `AgenticCommerceAdapter` / `AgenticCommerceService` in `apps/api/app/gateway/agentic.py`.
+- **Contract**: `docs/agentic-commerce.md` (internal contract, request/response, error codes, idempotency rules).
+
+### What an agent may and may not state
+| Agent **may** state | Agent **may never** state |
+| :--- | :--- |
+| which registered agent it is (`agent_id`) | its own display name, type, vendor or scopes |
+| which delegation authorizes it (`authorization_grant_id`) | trust level, risk score or routing destination |
+| the intended transaction (recipient, amount, currency, note) | the merchant, the user or the risk outcome |
+| its idempotency key and optional step-up token | any provider, endpoint or credential |
+
+Everything else — merchant identity, agent identity, scopes, amount ceilings, trust level, routing — is resolved server side.
+
+### Guarantees
+1. **No bypass to PayPal**: the agentic path contains no provider adapter import; execution happens only inside `TrustGatewayService`.
+2. **Fail-closed authorization**: unknown, foreign, suspended, expired, revoked, consumed, out-of-scope or over-limit delegations are rejected with HTTP 403 before any provider call.
+3. **Risk parity**: `RESTRICTED` still requires step-up, `DECOY` still reaches only the honey workspace, `ISOLATED` is still blocked and opens an incident.
+4. **Idempotency preserved & isolated**: the caller's key is forwarded verbatim (retries are deduplicated), and an agent may never reuse a key that belongs to a human payout or to another agent.
+5. **Attribution**: every authorized attempt is written to `agentic_commerce_audit` (agent → grant → payout).
+
+### Demo
+```bash
+make migrate && make seed     # seeds demo agent 7777... with grant 8888...
+curl -X POST http://localhost:8000/v1/agentic/payouts \
+  -H "Authorization: Bearer dev-merchant-token" -H "Content-Type: application/json" \
+  -d '{"agent_id":"77777777-7777-7777-7777-777777777777",
+       "authorization_grant_id":"88888888-8888-8888-8888-888888888888",
+       "session_id":"22222222-2222-2222-2222-222222222222",
+       "recipient_email":"vendor@example.com","amount":120.00,
+       "currency":"USD","idempotency_key":"agentic-order-8842"}'
+```

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from app.core.config import settings
+from app.gateway.provider import get_configured_payment_provider_name
 from app.gateway.routing import GatewayRoutingDecision
 from app.risk.schemas import RiskEvaluationResult
 from app.schemas.payouts import GatewayAction, PayoutRequest, RoutingDestination
@@ -130,8 +131,9 @@ class TrustGatewayPolicy:
         )
 
 
-default_policy = TrustGatewayPolicy(provider_mode=settings.PAYMENT_PROVIDER)
-
-
 def get_gateway_policy() -> TrustGatewayPolicy:
-    return default_policy
+    # Resolve the provider mode per call instead of freezing it at import.
+    # The gateway captures this policy's mode once per request and passes the
+    # same mode to the adapter factory, so the routing destination and the
+    # executing adapter always come from one explicit decision.
+    return TrustGatewayPolicy(provider_mode=get_configured_payment_provider_name())

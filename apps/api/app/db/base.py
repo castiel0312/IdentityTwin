@@ -1,4 +1,7 @@
 from app.models import (
+    AgentAuthorizationGrant,
+    AgenticCommerceAudit,
+    AgentRegistration,
     AnalystActionRecord,
     BehavioralTwin,
     IdempotencyRecord,
@@ -15,6 +18,9 @@ from app.models.base import Base
 
 __all__ = [
     "Base",
+    "AgentRegistration",
+    "AgentAuthorizationGrant",
+    "AgenticCommerceAudit",
     "Merchant",
     "User",
     "SessionRecord",

@@ -138,3 +138,53 @@ Trust bands use the same thresholds as the gateway policy: `RESTRICTED` at `30`,
 | `RISK_DECAY_POINTS_PER_EVENT` | `5.0` | Points removed by one eligible benign event. |
 
 Calibration evidence for these settings is in [`docs/calibration-report.md`](calibration-report.md).
+
+---
+
+## 6. Agentic Commerce (Person 3 - Internal Adapter)
+
+AI agent traffic is a **shape transformation problem**, not a new trust path. The
+agentic adapter lives inside the gateway boundary and converts an agent shaped
+request into the canonical `PayoutRequest`; everything after that point is the
+existing Trust Gateway pipeline.
+
+```mermaid
+graph LR
+    Agent[AI Agent / Embedded Assistant] -->|POST /v1/agentic/payouts| Route[api/routes/agentic.py]
+    Route --> Svc[gateway/agentic.py\nAgenticCommerceService]
+    Svc --> Adapter[IAgenticCommerceAdapter\nauthorize + normalize]
+    Adapter --> Registry[(agent_registrations\nagent_authorization_grants)]
+    Adapter -->|PayoutRequest| GW[TrustGatewayService]
+    GW --> Risk[Risk Engine - unchanged]
+    GW --> Prov[Mock / PayPal Sandbox]
+    Svc --> Audit[(agentic_commerce_audit)]
+```
+
+### A. Components
+
+| Component | File | Responsibility |
+| :--- | :--- | :--- |
+| `IAgenticCommerceAdapter` | `gateway/agentic.py` | Internal adapter protocol: `authorize()` + `normalize()`. |
+| `AgenticCommerceAdapter` | `gateway/agentic.py` | Resolves the agent and its delegation, fails closed, normalizes to `PayoutRequest`. |
+| `AgenticCommerceService` | `gateway/agentic.py` | Orchestrates authorize -> normalize -> gateway -> audit. |
+| `AgentRegistration`, `AgentAuthorizationGrant`, `AgenticCommerceAudit` | `models/agent.py` | Registry, delegation and audit trail. |
+| `AgentRepository` | `db/repositories/agent_repo.py` | Persistence for the three tables. |
+| `POST /v1/agentic/payouts` | `api/routes/agentic.py` | HTTP surface; depends on the service only. |
+
+### B. Boundary rules
+
+1. The agentic route imports the gateway service, never a provider adapter.
+2. `normalize()` is a pure transformation: it preserves the session identity and
+   the caller supplied idempotency key, and never introduces a merchant id.
+3. The merchant identity is resolved by the Trust Gateway from the
+   `AuthenticatedPrincipal`; the agent cannot assert it.
+4. The risk engine (Person 2) is untouched: agent requests are scored by the
+   same `IRiskEngineService` implementation as human payouts.
+5. Failures are fail-closed: an unknown agent, a foreign delegation, an
+   expired/revoked/consumed grant, a missing scope or an amount above the
+   delegated ceiling all stop the request before any provider call.
+
+The full contract, error codes and the idempotency context isolation rules are
+documented in [`docs/agentic-commerce.md`](agentic-commerce.md). The Person 3
+completion audit, including the tested-versus-live PayPal boundary, is in
+[`docs/p3-paypal-integration-handoff.md`](p3-paypal-integration-handoff.md).

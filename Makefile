@@ -12,7 +12,7 @@ install:
 	@echo "Creating virtual environment and installing dependencies..."
 	@test -d $(VENV) || $(PYTHON) -m venv $(VENV)
 	$(PIP) install --upgrade pip
-	$(PIP) install -e apps/api[dev] || $(PIP) install "fastapi>=0.100.0" "uvicorn[standard]>=0.23.0" "pydantic>=2.0" "pydantic-settings>=2.0" "sqlalchemy>=2.0.0" "alembic>=1.12.0" "httpx>=0.24.0" "pytest>=7.0.0" "psycopg2-binary>=2.9.0" "ruff>=0.1.0"
+	$(PIP) install -e "apps/api[dev]"
 	@echo "Installation complete."
 
 dev:

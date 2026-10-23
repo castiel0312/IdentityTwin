@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.routes.agentic import router as agentic_router
 from app.api.routes.events import router as events_router
 from app.api.routes.health import router as health_router
 from app.api.routes.incidents import router as incidents_router
@@ -19,5 +20,6 @@ api_v1_router.include_router(incidents_router)
 api_v1_router.include_router(webhooks_router)
 api_v1_router.include_router(twin_router)
 api_v1_router.include_router(stubs_router)
+api_v1_router.include_router(agentic_router)
 
 __all__ = ["api_v1_router", "health_router"]

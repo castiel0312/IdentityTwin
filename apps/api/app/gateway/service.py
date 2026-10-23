@@ -8,7 +8,9 @@ from app.core.exceptions import (
     DuplicateRequestException,
     EntityNotFoundException,
     OwnershipMismatchException,
+    PaymentProviderException,
     PolicyViolationException,
+    ProviderTimeoutException,
 )
 from app.core.security import AuthenticatedPrincipal
 from app.db.repositories.idempotency_repo import IdempotencyRepository
@@ -16,10 +18,13 @@ from app.db.repositories.payout_repo import PayoutRepository
 from app.db.repositories.session_repo import SessionRepository
 from app.gateway.policy import TrustGatewayPolicy, get_gateway_policy
 from app.gateway.provider import (
+    PROVIDER_NAME_NONE,
     DecoyHoneyAdapter,
     IPaymentProviderAdapter,
+    build_provider_payload,
     get_decoy_provider,
     get_payment_provider,
+    resolve_provider_name,
 )
 from app.models.idempotency import IdempotencyRecord
 from app.models.payout import PayoutRequestRecord
@@ -86,6 +91,7 @@ class TrustGatewayService:
         ).hexdigest()
 
         cached_rec = idempotency_repo.get_record(principal.merchant_id, request.idempotency_key)
+        idem_record = None
         if cached_rec:
             # Prevent idempotency parameter tampering (key reuse with different amounts/recipients)
             if cached_rec.request_hash != req_hash:
@@ -95,7 +101,7 @@ class TrustGatewayService:
                 )
 
             if cached_rec.status == "completed":
-                payload = cached_rec.response_payload
+                payload = dict(cached_rec.response_payload)
                 payload["is_duplicate"] = True
                 return PayoutResponse(**payload)
             elif cached_rec.status in ("provider_executed", "needs_reconciliation"):
@@ -113,16 +119,29 @@ class TrustGatewayService:
                     message="A request with this idempotency key is already processing.",
                     code="IDEMPOTENCY_IN_PROGRESS",
                 )
+            # status == "failed": the previous attempt failed before the provider
+            # executed anything, so the key is safe to retry. The existing
+            # record is reused instead of inserting a second row for the same
+            # (merchant_id, idempotency_key) pair, which would violate the
+            # unique idempotency index.
+            idem_record = cached_rec
 
         # Record in-progress idempotency record
         now = datetime.now(timezone.utc)
-        idem_record = IdempotencyRecord(
-            idempotency_key=request.idempotency_key,
-            merchant_id=principal.merchant_id,
-            request_hash=req_hash,
-            status="processing",
-            expires_at=now + timedelta(hours=24),
-        )
+        if idem_record is None:
+            idem_record = IdempotencyRecord(
+                idempotency_key=request.idempotency_key,
+                merchant_id=principal.merchant_id,
+                request_hash=req_hash,
+                status="processing",
+                expires_at=now + timedelta(hours=24),
+            )
+        else:
+            idem_record.request_hash = req_hash
+            idem_record.status = "processing"
+            idem_record.response_code = None
+            idem_record.response_payload = {}
+            idem_record.expires_at = now + timedelta(hours=24)
         idempotency_repo.save_record(idem_record)
 
         try:
@@ -202,6 +221,8 @@ class TrustGatewayService:
 
             provider_invoked = False
             provider_result = None
+            provider_reported_failure = False
+            provider_name = PROVIDER_NAME_NONE
 
             if routing_decision.action == GatewayAction.ALLOW:
                 # Consume single-use step-up challenge if used
@@ -213,15 +234,31 @@ class TrustGatewayService:
                 provider_result = self.provider_adapter.execute_payout(
                     request, principal.merchant_id
                 )
+                if not provider_result.success:
+                    # The provider reported a definitive, unsuccessful
+                    # execution: no funds were moved, so the idempotency key
+                    # stays safe to retry. A payout must never be persisted as
+                    # "completed" when the adapter reported a failure.
+                    provider_reported_failure = True
+                    raise PaymentProviderException(
+                        message="Payment provider reported an unsuccessful payout execution.",
+                        code="PROVIDER_EXECUTION_UNSUCCESSFUL",
+                        details={
+                            "provider_transaction_id": provider_result.provider_transaction_id,
+                            "provider_name": provider_result.provider_name,
+                        },
+                    )
                 provider_reference = provider_result.provider_transaction_id
-                provider_payload = provider_result.details
+                provider_name = resolve_provider_name(provider_result)
+                provider_payload = build_provider_payload(provider_result)
                 payout_status = "completed"
                 executed_at = provider_result.executed_at
             elif routing_decision.action == GatewayAction.DECOY_FORWARD:
                 # Routed to isolated synthetic honey environment
                 decoy_result = self.decoy_adapter.execute_decoy(request, principal.merchant_id)
                 provider_reference = decoy_result.provider_transaction_id
-                provider_payload = decoy_result.details
+                provider_name = resolve_provider_name(decoy_result)
+                provider_payload = build_provider_payload(decoy_result)
                 payout_status = "decoy_completed"
                 executed_at = decoy_result.executed_at
             elif routing_decision.action == GatewayAction.REQUIRE_STEP_UP:
@@ -265,15 +302,7 @@ class TrustGatewayService:
                 reference_note=request.reference_note,
                 idempotency_key=request.idempotency_key,
                 status=payout_status,
-                provider_name=(
-                    "mock"
-                    if routing_decision.action == GatewayAction.ALLOW
-                    else (
-                        "honey_decoy"
-                        if routing_decision.action == GatewayAction.DECOY_FORWARD
-                        else "none"
-                    )
-                ),
+                provider_name=provider_name,
                 provider_reference=provider_reference,
                 provider_payload=provider_payload,
                 executed_at=executed_at,
@@ -318,10 +347,28 @@ class TrustGatewayService:
 
         except Exception as exc:
             db.rollback()
-            if provider_invoked and provider_result:
+
+            # A payout that reached the provider but whose final outcome is
+            # unknown must never be silently retried:
+            #   * the provider returned a transaction id -> funds may have moved,
+            #   * the provider timed out -> the outcome is ambiguous and the
+            #     adapter itself demands reconciliation.
+            # A definitive provider failure (rejection, rate limit, explicit
+            # unsuccessful result) leaves the key safely retryable.
+            provider_may_have_executed = False
+            ambiguous_provider_outcome = False
+            if provider_invoked and not provider_reported_failure:
+                if provider_result is not None:
+                    provider_may_have_executed = True
+                elif isinstance(exc, ProviderTimeoutException):
+                    provider_may_have_executed = True
+                    ambiguous_provider_outcome = True
+
+            if provider_may_have_executed:
                 # CRITICAL SECURITY INVARIANT:
-                # The payment provider was ALREADY executed. We MUST NOT mark idempotency
-                # as 'failed' because that would allow retries to double-execute the payout!
+                # The payment provider was ALREADY executed (or may have been).
+                # We MUST NOT mark idempotency as 'failed' because that would
+                # allow retries to double-execute the payout!
                 # Mark as 'provider_executed' and preserve provider_reference for reconciliation.
                 try:
                     idempotency_repo.update_record(
@@ -329,8 +376,15 @@ class TrustGatewayService:
                         status="provider_executed",
                         response_code=500,
                         response_payload={
-                            "error": "POST_PROVIDER_DB_FAILURE_RECONCILIATION_REQUIRED",
-                            "provider_transaction_id": provider_result.provider_transaction_id,
+                            "error": (
+                                "PROVIDER_OUTCOME_AMBIGUOUS_RECONCILIATION_REQUIRED"
+                                if ambiguous_provider_outcome
+                                else "POST_PROVIDER_DB_FAILURE_RECONCILIATION_REQUIRED"
+                            ),
+                            "provider_transaction_id": (
+                                provider_result.provider_transaction_id if provider_result else None
+                            ),
+                            "idempotency_key": request.idempotency_key,
                             "amount": request.amount,
                             "currency": request.currency,
                             "recipient": request.recipient_email,
@@ -340,7 +394,8 @@ class TrustGatewayService:
                 except Exception:
                     pass
             else:
-                # Provider was never invoked. Safe to mark idempotency as failed so retry is allowed.
+                # Provider was never executed (or definitively failed without
+                # moving funds). Safe to mark idempotency as failed so retry is allowed.
                 try:
                     idempotency_repo.update_record(
                         record=idem_record,
@@ -359,11 +414,19 @@ def create_gateway_service(
     provider_adapter: IPaymentProviderAdapter | None = None,
     decoy_adapter: DecoyHoneyAdapter | None = None,
 ) -> TrustGatewayService:
+    # Resolve the policy first, then derive the adapter from the policy's own
+    # provider mode. Both halves of execution therefore share one explicit
+    # decision instead of reading the configuration independently.
+    resolved_policy = policy if policy is not None else get_gateway_policy()
     return TrustGatewayService(
-        policy=policy or get_gateway_policy(),
-        risk_engine=risk_engine or get_risk_engine(),
-        provider_adapter=provider_adapter or get_payment_provider(),
-        decoy_adapter=decoy_adapter or get_decoy_provider(),
+        policy=resolved_policy,
+        risk_engine=risk_engine if risk_engine is not None else get_risk_engine(),
+        provider_adapter=(
+            provider_adapter
+            if provider_adapter is not None
+            else get_payment_provider(resolved_policy.provider_mode)
+        ),
+        decoy_adapter=decoy_adapter if decoy_adapter is not None else get_decoy_provider(),
     )
 
 
