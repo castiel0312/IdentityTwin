@@ -6,12 +6,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.router import api_v1_router, health_router
 from app.core.config import settings
 from app.core.exceptions import IdentityTwinException, identitytwin_exception_handler
 from app.db.session import init_db
+from app.honey.api import provider_router
+from app.honey.api import router as honey_router
 
 # Configure structured logging without sensitive payment credentials or auth tokens
 logging.basicConfig(
@@ -47,6 +49,10 @@ def create_application() -> FastAPI:
         openapi_url="/openapi.json",
         lifespan=lifespan,
     )
+
+    @app.get("/", include_in_schema=False)
+    def get_root() -> RedirectResponse:
+        return RedirectResponse(url="/docs")
 
     # 1. CORS Configuration
     app.add_middleware(
@@ -117,6 +123,8 @@ def create_application() -> FastAPI:
     app.include_router(health_router)
     # Versioned API routes mounted under /v1 prefix
     app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(honey_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(provider_router)
 
     return app
 

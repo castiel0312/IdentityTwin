@@ -1,12 +1,53 @@
-from fastapi import APIRouter, Depends, status
+from collections.abc import AsyncGenerator
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.security import AuthenticatedPrincipal, get_current_principal
+from app.core.security import (
+    AuthenticatedPrincipal,
+    get_current_principal,
+)
 from app.db.session import get_db
+from app.honey.events import stream_containment_events
 from app.schemas.events import EventIngestRequest, EventIngestResponse
 from app.services.event_service import EventService
 
 router = APIRouter(prefix="/events", tags=["Event Ingestion"])
+
+
+@router.get(
+    "/stream",
+    response_class=StreamingResponse,
+    summary="Stream containment events for the authenticated merchant",
+)
+async def stream_events(
+    request: Request,
+    after_event_id: int = Query(default=0, ge=0),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+) -> StreamingResponse:
+    if last_event_id is not None:
+        try:
+            after_event_id = int(last_event_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Last-Event-ID must be an integer."
+            ) from None
+        if after_event_id < 0:
+            raise HTTPException(status_code=400, detail="Last-Event-ID must not be negative.")
+
+    async def generate() -> AsyncGenerator[str, None]:
+        async for event in stream_containment_events(
+            request, principal.merchant_id, after_event_id
+        ):
+            yield event
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post(

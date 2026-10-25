@@ -34,6 +34,7 @@ class IncidentRecord(Base, TimestampMixin):
     risk_score: Mapped[float] = mapped_column(Float, default=75.0, nullable=False)
     trigger_reason: Mapped[str] = mapped_column(String(255), nullable=False)
     evidence_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    sealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_by: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
 

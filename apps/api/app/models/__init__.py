@@ -4,7 +4,24 @@ from app.models.agent import (
     AgentRegistration,
 )
 from app.models.base import Base, TimestampMixin
+from app.models.canary import CanaryRecord
 from app.models.event import SecurityEvent
+from app.models.evidence import (
+    EvidenceChainHead,
+    EvidenceLogEntry,
+    EvidencePayload,
+    HoneyActivityLog,
+    HoneyApiCredential,
+    HoneyBalance,
+    HoneyCustomer,
+    HoneyInvoice,
+    HoneyMerchantProfile,
+    HoneyPayee,
+    HoneyPayout,
+    HoneyTransaction,
+    HoneyWorkspaceState,
+    IncidentSeal,
+)
 from app.models.idempotency import IdempotencyRecord
 from app.models.incident import AnalystActionRecord, IncidentRecord
 from app.models.payout import PayoutRequestRecord
@@ -20,6 +37,21 @@ __all__ = [
     "AgentRegistration",
     "AgentAuthorizationGrant",
     "AgenticCommerceAudit",
+    "CanaryRecord",
+    "EvidenceLogEntry",
+    "EvidencePayload",
+    "EvidenceChainHead",
+    "HoneyWorkspaceState",
+    "HoneyMerchantProfile",
+    "HoneyBalance",
+    "HoneyCustomer",
+    "HoneyInvoice",
+    "HoneyTransaction",
+    "HoneyPayout",
+    "HoneyPayee",
+    "HoneyApiCredential",
+    "HoneyActivityLog",
+    "IncidentSeal",
     "Merchant",
     "User",
     "SessionRecord",

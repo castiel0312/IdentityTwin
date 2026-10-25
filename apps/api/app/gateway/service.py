@@ -255,7 +255,9 @@ class TrustGatewayService:
                 executed_at = provider_result.executed_at
             elif routing_decision.action == GatewayAction.DECOY_FORWARD:
                 # Routed to isolated synthetic honey environment
-                decoy_result = self.decoy_adapter.execute_decoy(request, principal.merchant_id)
+                decoy_result = self.decoy_adapter.execute_decoy(
+                    request, principal.merchant_id, principal.user_id, db
+                )
                 provider_reference = decoy_result.provider_transaction_id
                 provider_name = resolve_provider_name(decoy_result)
                 provider_payload = build_provider_payload(decoy_result)

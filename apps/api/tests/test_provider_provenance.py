@@ -97,7 +97,13 @@ class RecordingDecoyAdapter:
         self.environment = environment
         self.invocations: list[PayoutRequest] = []
 
-    def execute_decoy(self, request: PayoutRequest, merchant_id: UUID) -> ProviderPayoutResult:
+    def execute_decoy(
+        self,
+        request: PayoutRequest,
+        merchant_id: UUID,
+        _user_id: UUID,
+        _evidence_db: Session,
+    ) -> ProviderPayoutResult:
         self.invocations.append(request)
         return ProviderPayoutResult(
             success=True,

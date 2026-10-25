@@ -114,6 +114,10 @@ class Settings(BaseSettings):
         default="sqlite:///./identitytwin_dev.db",
         description="SQLAlchemy database connection URI (SQLite default for quick local runs, PostgreSQL for production)",
     )
+    HONEY_DB_URL: str = Field(
+        default="",
+        description="Dedicated connection URI for the honey schema; defaults to DATABASE_URL.",
+    )
 
     # CORS
     CORS_ORIGINS: list[str] | str = Field(

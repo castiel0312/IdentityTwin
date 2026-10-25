@@ -47,6 +47,7 @@ from app.gateway.provider import (
     ProviderPayoutResult,
 )
 from app.gateway.service import TrustGatewayService, create_gateway_service
+from app.models.evidence import EvidenceLogEntry, EvidencePayload, HoneyPayout, HoneyWorkspaceState
 from app.models.idempotency import IdempotencyRecord
 from app.models.incident import IncidentRecord
 from app.models.payout import PayoutRequestRecord
@@ -152,7 +153,13 @@ class RecordingDecoyAdapter:
         self.provider_name = provider_name
         self.invocations: list[tuple[PayoutRequest, uuid.UUID]] = []
 
-    def execute_decoy(self, request: PayoutRequest, merchant_id: uuid.UUID) -> ProviderPayoutResult:
+    def execute_decoy(
+        self,
+        request: PayoutRequest,
+        merchant_id: uuid.UUID,
+        _user_id: uuid.UUID,
+        _evidence_db: Session,
+    ) -> ProviderPayoutResult:
         self.invocations.append((request, merchant_id))
         return ProviderPayoutResult(
             success=True,
@@ -743,6 +750,51 @@ def test_decoy_request_never_contacts_paypal(db_session: Session):
 
     assert response.status == "decoy_completed"
     assert stub.requests == []
+
+
+def test_decoy_request_persists_synthetic_payout_and_evidence(db_session: Session):
+    """The gateway's decoy branch writes only synthetic honey state and evidence."""
+    provider = RecordingProviderAdapter()
+    service = build_service(
+        StubRiskEngine(TrustLevel.DECOY, 75.0),
+        provider=provider,
+        decoy=DecoyHoneyAdapter(),
+    )
+    request = make_request(DECOY_SESSION_ID, amount=125.00)
+
+    response = service.execute_payout(
+        db=db_session,
+        request=request,
+        principal=make_principal(),
+    )
+
+    workspace = db_session.get(HoneyWorkspaceState, str(DECOY_SESSION_ID))
+    assert response.status == "decoy_completed"
+    assert response.provider_reference
+    assert provider.invocations == []
+    assert workspace is not None
+    assert workspace.identity_id == str(TEST_USER_ID)
+    assert workspace.world["payouts"][-1]["transaction_id"] == response.provider_reference
+    assert (
+        db_session.query(HoneyPayout)
+        .filter_by(
+            session_id=str(DECOY_SESSION_ID),
+            identity_id=str(TEST_USER_ID),
+            resource_id=workspace.world["payouts"][-1]["payout_batch_id"],
+        )
+        .one()
+        .synthetic
+    )
+    evidence = (
+        db_session.query(EvidenceLogEntry)
+        .filter_by(event_ref="honey_action")
+        .order_by(EvidenceLogEntry.seq.desc())
+        .first()
+    )
+    assert evidence is not None
+    assert db_session.get(EvidencePayload, evidence.seq).payload["transaction_id"] == (
+        response.provider_reference
+    )
 
 
 def test_decoy_payout_is_recorded_with_the_honey_identity(db_session: Session):

@@ -33,6 +33,9 @@ up without reinstalling. The `dev` extra adds `pytest`, `pytest-asyncio` and
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+Open `http://localhost:8000/` to be redirected to the interactive API docs,
+or visit `http://localhost:8000/docs` directly.
+
 ## Test and lint
 
 ```bash

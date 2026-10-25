@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 # Set test environment
@@ -13,11 +13,29 @@ TEST_DB_PATH = "./identitytwin_test.db"
 os.environ["ENVIRONMENT"] = "development"
 os.environ["ALLOW_DEV_AUTH"] = "true"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
+os.environ["HONEY_DB_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 from app.db.base import Base
-from app.db.session import get_db
+from app.db.session import get_db, get_honey_db
 from app.gateway.provider import mock_provider_instance
 from app.main import app
+from app.models.canary import CanaryRecord
+from app.models.evidence import (
+    EvidenceChainHead,
+    EvidenceLogEntry,
+    EvidencePayload,
+    HoneyActivityLog,
+    HoneyApiCredential,
+    HoneyBalance,
+    HoneyCustomer,
+    HoneyInvoice,
+    HoneyMerchantProfile,
+    HoneyPayee,
+    HoneyPayout,
+    HoneyTransaction,
+    HoneyWorkspaceState,
+    IncidentSeal,
+)
 from app.models.incident import IncidentRecord
 from app.models.principal import Merchant, User
 from app.models.session import SessionRecord
@@ -29,6 +47,7 @@ from app.schemas.sessions import SessionStatus, TrustLevel
 test_engine = create_engine(
     f"sqlite:///{TEST_DB_PATH}",
     connect_args={"check_same_thread": False},
+    execution_options={"schema_translate_map": {"honey": None}},
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
@@ -138,15 +157,49 @@ def db_session() -> Generator[Session, None, None]:
 
 @pytest.fixture(autouse=True)
 def reset_behavioral_state(db_session: Session) -> Generator[None, None, None]:
-    """Person 2: every test starts from a clean behavioural twin baseline.
+    """Start each test with clean behavioral, honey, and evidence state.
 
-    The behavioural twin and the session risk ledger are persistent state that
-    is shared per identity. Resetting them between tests keeps the existing
-    Person 1 suite deterministic and independent of execution order.
+    These records share a persistent test database, so clearing them keeps
+    tests deterministic and independent of execution order.
     """
+    connection = db_session.connection()
+    if connection.dialect.name == "sqlite":
+        for table in ("evidence_log", "evidence_payload"):
+            for operation in ("update", "delete"):
+                connection.execute(text(f"DROP TRIGGER IF EXISTS {table}_reject_{operation}"))
+
     db_session.query(BehavioralTwin).delete()
     db_session.query(SessionRiskStateRecord).delete()
+    db_session.query(EvidencePayload).delete()
+    db_session.query(EvidenceLogEntry).delete()
+    db_session.query(EvidenceChainHead).delete()
+    db_session.query(IncidentSeal).delete()
+    db_session.query(CanaryRecord).delete()
+    for honey_model in (
+        HoneyActivityLog,
+        HoneyApiCredential,
+        HoneyBalance,
+        HoneyCustomer,
+        HoneyInvoice,
+        HoneyMerchantProfile,
+        HoneyPayout,
+        HoneyPayee,
+        HoneyTransaction,
+        HoneyWorkspaceState,
+    ):
+        db_session.query(honey_model).delete()
     db_session.commit()
+
+    if connection.dialect.name == "sqlite":
+        connection = db_session.connection()
+        for table in ("evidence_log", "evidence_payload"):
+            for operation in ("UPDATE", "DELETE"):
+                trigger_name = f"{table}_reject_{operation.lower()}"
+                connection.exec_driver_sql(
+                    f"CREATE TRIGGER {trigger_name} BEFORE {operation} ON {table} "
+                    "BEGIN SELECT RAISE(ABORT, 'evidence records are append-only'); END"
+                )
+        db_session.commit()
     yield
 
 
@@ -161,6 +214,7 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_honey_db] = override_get_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

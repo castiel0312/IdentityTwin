@@ -201,10 +201,16 @@ make openapi
 | :--- | :--- | :--- | :--- |
 | **Frontend** | React Dashboard | `packages/contracts/openapi.json` — Generate TypeScript types via `npx openapi-typescript`. | Contract Ready (20 paths) |
 | **Person 2** | Risk Intelligence | Implement `IRiskEngineService` in `app/risk/service.py`. Consume `SecurityEvent` telemetry. | 7 Named Signals Connected |
-| **Person 3** | PayPal Integration | `PayPalSandboxAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox credentials in `.env`. Internal agentic commerce adapter in `app/gateway/agentic.py` (`POST /v1/agentic/payouts`). | Sandbox Adapter Ready |
-| **Person 4** | Honey Workspace | `DecoyHoneyAdapter` in `app/gateway/provider.py`. Confinement routing is automated. | Honey Routing Verified |
-| **Person 5** | Evidence & Incidents | Consume `SecurityEvent`, `RiskDecisionRecord`, and `AnalystActionRecord` from database. | Evidence Integrity Ready |
+| **Person 3** | PayPal Integration | `PayPalSandboxAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox credentials in `.env`. Internal agentic commerce adapter in `app/gateway/agentic.py` (`POST /v1/agentic/payouts`). | Trust Gateway sends allowed payouts to PayPal Sandbox when configured |
+| **Person 4** | Honey Workspace | `DecoyHoneyAdapter` in `app/gateway/provider.py`; workspace, canaries, containment, and evidence. | Suspicious payouts persist in the synthetic honey workspace; the decoy branch never invokes the PayPal adapter |
+| **Person 5** | Evidence & Incidents | Consume `SecurityEvent`, `RiskDecisionRecord`, and `AnalystActionRecord` from database. | Evidence chain and incident timeline implemented |
 | **Person 6** | AI Investigator | Read incident telemetry via `GET /v1/incidents/{id}`. | Read API Ready |
+
+Person 4 implementation details, tested behavior, and deployment limitations are
+tracked in [`docs/honey-and-evidence.md`](docs/honey-and-evidence.md). In
+particular, honey state and its session-scoped resource tables are implemented;
+PostgreSQL role isolation, API restart persistence, and evidence-backed attack
+simulation were verified against the running Compose stack.
 
 ---
 
@@ -238,6 +244,10 @@ To connect live PayPal Sandbox credentials for demo execution:
    workflow never requires PayPal credentials.
 4. Normal eligible payouts (`TrustLevel.NORMAL`) will automatically execute via official PayPal Payouts REST API (`/v1/payments/payouts`) with `PayPal-Request-Id` idempotency tracking.
 5. In the absence of live PayPal credentials, use `PAYMENT_PROVIDER="mock"`, which provides safe synthetic transactions without network dependencies. Explicitly selecting `paypal_sandbox` without credentials is a startup error, not an automatic fallback.
+   Docker Compose keeps the API off direct external networks. When PayPal
+   Sandbox is selected, requests go through an unpublished proxy that only
+   permits `api-m.sandbox.paypal.com:443`; decoy payouts remain synthetic and
+   do not call the provider adapter.
 6. **Webhook Verification**: `POST /v1/webhooks/paypal` verifies every delivery with PayPal's own `/v1/notifications/verify-webhook-signature` endpoint using `PAYPAL_WEBHOOK_ID`. A delivery is accepted only when PayPal answers `verification_status: SUCCESS`; a missing webhook id, a missing credential, a failed verification and a provider outage are all rejected with HTTP 400. See `docs/local-development.md` §7 for the local setup.
 
 ### Security Invariants & Notes

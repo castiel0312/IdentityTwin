@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     "pydantic-settings>=2.0" \
     "sqlalchemy>=2.0.0" \
     "alembic>=1.12.0" \
-    "psycopg2-binary>=2.9.0" \
+    "psycopg[binary]>=3.1.0" \
     "httpx>=0.24.0" \
     "pytest>=7.0.0" \
     "ruff>=0.1.0"
@@ -33,4 +33,4 @@ WORKDIR /workspace/apps/api
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

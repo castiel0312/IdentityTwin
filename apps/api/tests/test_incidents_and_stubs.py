@@ -143,8 +143,6 @@ def test_501_stubs_return_standard_error_and_owner_tags(
     endpoints = [
         ("GET", "/v1/stream", {}),
         ("POST", f"/v1/signatures/{sample_uuid}/approve", {}),
-        ("GET", f"/v1/evidence/verify?evidence_id={sample_uuid}", {}),
-        ("POST", "/v1/simulate/attack", {}),
     ]
 
     for method, path, body in endpoints:
@@ -158,6 +156,51 @@ def test_501_stubs_return_standard_error_and_owner_tags(
         assert "error" in data
         assert data["error"]["code"] == "NOT_IMPLEMENTED"
         assert "owner" in data["error"]["details"]
+
+
+def test_evidence_verification_and_attack_simulation_work(
+    client: TestClient,
+    merchant_auth_headers: dict,
+    db_session: Session,
+):
+    simulation = client.post("/v1/simulate/attack", headers=merchant_auth_headers)
+    assert simulation.status_code == 200
+    result = simulation.json()
+    assert result["status"] == "ok"
+    assert result["incident_sealed"] is True
+    assert result["evidence_verify"]["valid"] is True
+    incident = db_session.get(IncidentRecord, uuid.UUID(result["incident_id"]))
+    assert incident is not None
+    assert incident.sealed_at is not None
+
+    timeline = client.get(
+        f"/v1/incidents/{result['incident_id']}/timeline",
+        headers=merchant_auth_headers,
+    )
+    assert timeline.status_code == 200
+    types = [entry["type"] for entry in timeline.json()["timeline"]]
+    assert {
+        "login",
+        "payee_add",
+        "payout",
+        "honey_view",
+        "canary_triggered",
+        "session_isolated",
+    } <= set(types)
+
+    trace = client.get(
+        f"/v1/incidents/{result['incident_id']}/attack-trace",
+        headers=merchant_auth_headers,
+    )
+    assert trace.status_code == 200
+    labels = {node["label"] for node in trace.json()["nodes"]}
+    assert "Delhi Windows/Chrome" in labels
+    assert "PAYEE-992" in labels
+    assert any(label.startswith("CRED-") for label in labels)
+
+    verification = client.get("/v1/evidence/verify", headers=merchant_auth_headers)
+    assert verification.status_code == 200
+    assert verification.json()["valid"] is True
 
 
 def test_behavioral_twin_stub_is_replaced_by_implementation(

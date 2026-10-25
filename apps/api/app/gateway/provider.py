@@ -8,6 +8,7 @@ from uuid import UUID
 
 import httpx
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.core.config import (
     ALLOWED_PAYMENT_PROVIDERS,
@@ -183,15 +184,37 @@ class DecoyHoneyAdapter:
     def __init__(self):
         self.invocation_count = 0
 
-    def execute_decoy(self, request: PayoutRequest, merchant_id: UUID) -> ProviderPayoutResult:
+    def execute_decoy(
+        self,
+        request: PayoutRequest,
+        merchant_id: UUID,
+        user_id: UUID,
+        evidence_db: Session,
+    ) -> ProviderPayoutResult:
         self.invocation_count += 1
-        decoy_tx_id = f"HONEY-DECOY-SIM-TXN-{uuid.uuid4().hex[:12].upper()}"
+        from app.db.session import HoneySessionLocal
+        from app.honey.payouts import create_synthetic_payout
+
+        with HoneySessionLocal() as honey_db:
+            synthetic_payout = create_synthetic_payout(
+                evidence_db,
+                honey_db,
+                session_id=str(request.session_id),
+                identity_id=str(user_id),
+                amount=request.amount,
+                currency=request.currency,
+                recipient=request.recipient_email,
+                transaction_id_prefix="HONEY-DECOY-SIM-TXN-",
+                idempotency_key=request.idempotency_key,
+            )
+
+        transaction_id = synthetic_payout["items"][0]["transaction_id"]
         now = datetime.now(timezone.utc)
 
         return ProviderPayoutResult(
             success=True,
             provider_name="honey_synthetic_decoy",
-            provider_transaction_id=decoy_tx_id,
+            provider_transaction_id=transaction_id,
             environment="honey_sandbox_simulation",
             details={
                 "honey_warning": "CONFINEMENT SIMULATION. DECOY WORKSPACE ENGAGED.",
@@ -199,6 +222,7 @@ class DecoyHoneyAdapter:
                 "amount": request.amount,
                 "currency": request.currency,
                 "merchant_id": str(merchant_id),
+                "synthetic_payout": synthetic_payout,
             },
             executed_at=now,
         )
