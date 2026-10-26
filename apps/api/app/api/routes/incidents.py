@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -8,8 +9,10 @@ from app.db.session import get_db
 from app.schemas.incidents import (
     IncidentActionRequest,
     IncidentActionResponse,
+    IncidentActionsResponse,
     IncidentListResponse,
     IncidentResponse,
+    IncidentSealResponse,
 )
 from app.services.incident_service import IncidentService
 
@@ -29,6 +32,10 @@ def list_incidents(
     severity: str | None = Query(
         None, description="Filter by severity (LOW, MEDIUM, HIGH, CRITICAL)"
     ),
+    q: str | None = Query(None, max_length=128, description="Title, description or trigger reason"),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
+    sort: str = Query("-created_at", description="created_at, risk_score, severity or status"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     principal: AuthenticatedPrincipal = Depends(get_current_principal),
@@ -42,6 +49,10 @@ def list_incidents(
         severity=severity,
         limit=page_size,
         offset=offset,
+        q=q,
+        start=start,
+        end=end,
+        sort=sort,
     )
     return IncidentListResponse(
         items=items,
@@ -63,6 +74,32 @@ def get_incident(
 ) -> IncidentResponse:
     service = IncidentService(db)
     return service.get_incident(incident_id=incident_id, principal=principal)
+
+
+@router.get(
+    "/{incident_id}/actions",
+    response_model=IncidentActionsResponse,
+    summary="Read authorization-aware incident response actions",
+)
+def get_incident_actions(
+    incident_id: UUID,
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> IncidentActionsResponse:
+    return IncidentService(db).get_actions(incident_id, principal)
+
+
+@router.get(
+    "/{incident_id}/seal",
+    response_model=IncidentSealResponse,
+    summary="Read the incident evidence seal status",
+)
+def get_incident_seal(
+    incident_id: UUID,
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> IncidentSealResponse:
+    return IncidentService(db).get_seal(incident_id, principal)
 
 
 @router.post(

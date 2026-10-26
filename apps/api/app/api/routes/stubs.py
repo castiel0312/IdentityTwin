@@ -74,6 +74,8 @@ def simulate_attack(
     import uuid
     from datetime import datetime, timezone
 
+    from app.core.config import settings
+    from app.core.exceptions import PolicyViolationException
     from app.evidence.hashchain import EvidenceChain
     from app.honey.bootstrap import bootstrap
     from app.honey.canary import CanaryRegistryService
@@ -81,6 +83,15 @@ def simulate_attack(
     from app.models.principal import Merchant, User
     from app.models.session import SessionRecord
     from app.schemas.sessions import SessionStatus, TrustLevel
+
+    if settings.ENVIRONMENT.lower() == "production":
+        raise PolicyViolationException(
+            message=(
+                "Attack simulation is disabled in production. Use a designated "
+                "non-production environment."
+            ),
+            code="SIMULATION_DISABLED_IN_PRODUCTION",
+        )
 
     chain = EvidenceChain(db)
     session_id = str(uuid.uuid4())

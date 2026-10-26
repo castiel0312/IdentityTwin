@@ -24,8 +24,10 @@ from app.risk.twin import (
     hash_device,
     pending_payees,
 )
+from app.schemas.identities import IdentityDetailResponse, IdentityListResponse
 from app.schemas.sessions import TrustLevel
 from app.schemas.twins import TwinDeviationResponse, TwinProfileResponse
+from app.services.identity_query_service import get_identity_detail, list_identities
 
 router = APIRouter(
     prefix="/identities",
@@ -97,6 +99,41 @@ def _build_deviation(
         raw_points_sum=state.raw_points_sum,
         decay_points=state.decay_points_total,
     )
+
+
+@router.get(
+    "",
+    response_model=IdentityListResponse,
+    summary="List identities and behavioural twin readiness",
+    description=(
+        "Lists merchant-scoped identities with twin sample counts, confirmed context "
+        "counts and session statistics. Provisional twins are labelled explicitly."
+    ),
+)
+def list_merchant_identities(
+    q: str | None = Query(None, max_length=128, description="Email or role search"),
+    has_twin: bool | None = Query(None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> IdentityListResponse:
+    return list_identities(
+        db, principal, q=q, has_twin=has_twin, page=page, page_size=page_size
+    )
+
+
+@router.get(
+    "/{id}",
+    response_model=IdentityDetailResponse,
+    summary="Read identity context and recent sessions",
+)
+def get_identity(
+    id: UUID,
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> IdentityDetailResponse:
+    return get_identity_detail(db, principal, id)
 
 
 @router.get(

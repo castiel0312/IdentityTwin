@@ -9,7 +9,7 @@ This guide walks you through setting up and running the IdentityTwin Trust Gatew
 - **Python**: 3.11 or higher
 - **Make**: Available on macOS and Linux
 - **Docker & Docker Compose** *(Optional, for PostgreSQL testing)*
-- **Node.js 18+** *(Optional, for frontend client code generation)*
+- **Node.js 20.19+** *(required for the React console and OpenAPI type generation)*
 
 ---
 
@@ -74,6 +74,43 @@ cd apps/api
 python -c "import app.main, alembic; print(app.main.__file__); print(alembic.__file__)"
 python -m pytest tests/ -q
 ```
+
+---
+
+## 2.2 Running the React Console
+
+With the API running and seeded, start the console in a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The console is served at `http://127.0.0.1:5173` and proxies `/v1` to
+`http://127.0.0.1:8000`. Use the development persona buttons on the login page;
+these are visible only in the Vite development build and require
+`ALLOW_DEV_AUTH=true` on the API.
+
+Production builds use a pasted bearer token until the backend OIDC flow is
+implemented. The token is kept in tab-scoped `sessionStorage`, never
+`localStorage`. See [`frontend/README.md`](../frontend/README.md) for production
+configuration, module coverage, security invariants and known gaps.
+
+Frontend verification commands:
+
+```bash
+cd frontend
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+```
+
+The Playwright suite starts its own API on port `8010` and Vite on port `5174`,
+using `apps/api/identitytwin_e2e.db`. The disposable database is deleted and
+re-seeded for every run; the developer database and servers are untouched.
 
 ---
 

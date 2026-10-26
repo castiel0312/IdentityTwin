@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -10,10 +11,16 @@ from app.core.exceptions import (
 )
 from app.core.security import AuthenticatedPrincipal, RoleEnum
 from app.db.repositories.incident_repo import IncidentRepository
+from app.models.evidence import IncidentSeal
+from app.models.incident import IncidentRecord
+from app.schemas.evidence import EvidenceSealSummary
 from app.schemas.incidents import (
+    IncidentActionAvailability,
     IncidentActionRequest,
     IncidentActionResponse,
+    IncidentActionsResponse,
     IncidentResponse,
+    IncidentSealResponse,
     IncidentStatus,
 )
 
@@ -30,6 +37,11 @@ class IncidentService:
         severity: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        *,
+        q: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        sort: str = "-created_at",
     ) -> tuple[list[IncidentResponse], int]:
         # Merchants can only see their own incidents
         # Analysts can see incidents in their merchant scope
@@ -40,6 +52,10 @@ class IncidentService:
             severity=severity,
             limit=limit,
             offset=offset,
+            q=q,
+            start=start,
+            end=end,
+            sort=sort,
         )
         responses = [IncidentResponse.model_validate(item) for item in items]
         return responses, total
@@ -237,3 +253,119 @@ class IncidentService:
             notes=request.notes,
             message="Incident revocation confirmed and approved. Session remains revoked. No payout executed.",
         )
+
+    def get_actions(
+        self, incident_id: UUID, principal: AuthenticatedPrincipal
+    ) -> IncidentActionsResponse:
+        incident = self._scoped_incident(incident_id, principal)
+        is_analyst = principal.role in (RoleEnum.ANALYST, RoleEnum.ADMIN)
+        terminal = incident.status in (
+            IncidentStatus.RESOLVED.value,
+            IncidentStatus.REJECTED.value,
+        )
+        actions = [
+            IncidentActionAvailability(
+                action="approve",
+                label="Approve review",
+                allowed=is_analyst and incident.status != IncidentStatus.RESOLVED.value,
+                required_roles=["analyst", "admin"],
+                reason=(
+                    None
+                    if is_analyst and incident.status != IncidentStatus.RESOLVED.value
+                    else (
+                        "Analyst or admin role is required."
+                        if not is_analyst
+                        else "A resolved incident cannot be approved."
+                    )
+                ),
+            ),
+            IncidentActionAvailability(
+                action="resolve",
+                label="Resolve and archive",
+                allowed=is_analyst and not terminal,
+                required_roles=["analyst", "admin"],
+                reason=(
+                    None
+                    if is_analyst and not terminal
+                    else (
+                        "Analyst or admin role is required."
+                        if not is_analyst
+                        else "Incident is already in a terminal state."
+                    )
+                ),
+                destructive=True,
+            ),
+            IncidentActionAvailability(
+                action="approve-revocation",
+                label="Confirm session revocation",
+                allowed=is_analyst and incident.session_id is not None and not terminal,
+                required_roles=["analyst", "admin"],
+                reason=(
+                    None
+                    if is_analyst and incident.session_id is not None and not terminal
+                    else (
+                        "Analyst or admin role is required."
+                        if not is_analyst
+                        else (
+                            "Incident has no associated session."
+                            if incident.session_id is None
+                            else "Incident is already in a terminal state."
+                        )
+                    )
+                ),
+                destructive=True,
+            ),
+        ]
+        return IncidentActionsResponse(
+            incident_id=incident.incident_id,
+            current_status=IncidentStatus(incident.status),
+            principal_role=principal.role.value,
+            actions=actions,
+        )
+
+    def get_seal(
+        self, incident_id: UUID, principal: AuthenticatedPrincipal
+    ) -> IncidentSealResponse:
+        incident = self._scoped_incident(incident_id, principal)
+        seal = (
+            self.db.query(IncidentSeal)
+            .filter(IncidentSeal.incident_id == incident.incident_id)
+            .order_by(IncidentSeal.sealed_at.desc())
+            .first()
+        )
+        if seal is None:
+            return IncidentSealResponse(
+                incident_id=incident.incident_id, sealed=False, seal=None
+            )
+        return IncidentSealResponse(
+            incident_id=incident.incident_id,
+            sealed=True,
+            seal=EvidenceSealSummary(
+                seal_id=seal.seal_id,
+                incident_id=seal.incident_id,
+                incident_title=incident.title,
+                incident_status=incident.status,
+                session_id=seal.session_id,
+                merchant_id=seal.merchant_id,
+                start_seq=seal.start_seq,
+                end_seq=seal.end_seq,
+                head_hash=seal.head_hash,
+                sealed_at=seal.sealed_at,
+            ),
+        )
+
+    def _scoped_incident(
+        self, incident_id: UUID, principal: AuthenticatedPrincipal
+    ) -> IncidentRecord:
+        incident = self.incident_repo.get_by_id(incident_id)
+        if not incident:
+            raise EntityNotFoundException(
+                message=f"Incident '{incident_id}' not found.",
+                code="INCIDENT_NOT_FOUND",
+            )
+        if incident.merchant_id != principal.merchant_id:
+            raise OwnershipMismatchException(
+                message="Access denied: Incident belongs to a different merchant domain.",
+                code="INCIDENT_SCOPE_MISMATCH",
+            )
+        return incident

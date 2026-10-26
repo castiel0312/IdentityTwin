@@ -41,9 +41,9 @@ openapi:
 
 seed:
 	@echo "Seeding demo database with test principals, sessions, and incidents..."
-	PYTHONPATH=apps/api $(VENV)/bin/python scripts/seed_demo.py
+	cd apps/api && PYTHONPATH=. ../../$(VENV)/bin/python ../../scripts/seed_demo.py
 
 clean:
 	rm -rf .pytest_cache .ruff_cache apps/api/.pytest_cache
 	find . -type d -name "__pycache__" -exec rm -rf {} +
-	rm -f identitytwin_dev.db identitytwin_test.db
+	rm -f identitytwin_dev.db identitytwin_test.db apps/api/identitytwin_dev.db apps/api/identitytwin_test.db

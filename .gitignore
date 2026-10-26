@@ -37,6 +37,9 @@ wheels/
 .coverage
 htmlcov/
 .ruff_cache/
+coverage/
+playwright-report/
+test-results/
 
 # Databases
 *.db

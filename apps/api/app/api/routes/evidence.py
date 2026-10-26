@@ -1,7 +1,7 @@
 from datetime import timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,8 @@ from app.evidence.hashchain import EvidenceChain
 from app.models.evidence import EvidenceLogEntry, EvidencePayload
 from app.models.incident import IncidentRecord
 from app.models.principal import Merchant
+from app.schemas.evidence import EvidenceSealDetailResponse, EvidenceSealListResponse
+from app.services.evidence_query_service import get_seal_detail, list_seals
 
 router = APIRouter(tags=["Evidence"])
 
@@ -39,6 +41,37 @@ def _get_incident_events(
         if session_id and str(payload.payload.get("session_id")) == session_id
     ]
     return incident, events
+
+
+@router.get(
+    "/evidence/seals",
+    response_model=EvidenceSealListResponse,
+    summary="List incident evidence seals for the authenticated merchant",
+)
+def list_evidence_seals(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> EvidenceSealListResponse:
+    return list_seals(db, principal, page=page, page_size=page_size)
+
+
+@router.get(
+    "/evidence/seals/{seal_id}",
+    response_model=EvidenceSealDetailResponse,
+    summary="Read one evidence seal and verify consistency of its recorded range",
+    description=(
+        "Seal-range verification checks sequence continuity, payload hashes, chain "
+        "links and the sealed head. It is not a per-record notarisation."
+    ),
+)
+def get_evidence_seal(
+    seal_id: UUID,
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> EvidenceSealDetailResponse:
+    return get_seal_detail(db, principal, seal_id)
 
 
 @router.get("/evidence/verify")

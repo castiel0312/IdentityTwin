@@ -16,16 +16,25 @@ PYTHONPATH=apps/api python scripts/export_openapi.py
 ## Subsystem Integration Guide
 
 ### 1. Frontend Teammate (React + TypeScript + Vite)
-- Use `openapi-typescript` or `openapi-typescript-codegen` to generate typed API clients:
+- The console lives in `frontend/` and consumes generated types from
+  `frontend/src/types/api.ts`.
+- Regenerate types after changing the contract:
   ```bash
-  npx openapi-typescript packages/contracts/openapi.json -o apps/web/src/types/api.ts
+  make openapi
+  cd frontend && npm run openapi:types
   ```
-- Use the stable endpoints:
+- Stable endpoints include:
   - `POST /v1/events` for sending keystroke/mouse/navigation telemetry.
   - `GET /v1/sessions` and `GET /v1/sessions/{session_id}` for session trust badges.
   - `POST /v1/payouts` for executing protected merchant payouts.
+  - `GET /v1/payouts` and `GET /v1/payouts/{payout_id}` for the payout ledger and authoritative result detail.
   - `POST /v1/agentic/payouts` for AI agent initiated payouts (internal adapter contract, see `docs/agentic-commerce.md`).
-  - `GET /v1/incidents` and `POST /v1/incidents/{incident_id}/approve` for analyst dashboard.
+  - `GET /v1/incidents`, incident timeline/attack-trace/seal, and role-gated analyst actions.
+  - `GET /v1/analytics/overview`, `GET /v1/risk/config`, `GET /v1/risk/decisions` and read-model projections for identities, agents, honey operator views, evidence seals, simulation/calibration and system context.
+  - `GET /v1/events/stream` for authenticated SSE (bearer header, never a query token).
+- See `frontend/README.md` for module coverage, authentication, test commands and
+  security limitations. `POST /v1/stream` remains a `501` compatibility stub;
+  the console uses `/v1/events/stream`.
 
 ### 2. Risk Intelligence Teammate (Person 2)
 - Interface to implement: `apps/api/app/risk/service.py` (`IRiskEngineService`).

@@ -8,6 +8,7 @@ from app.core.security import AuthenticatedPrincipal, get_current_principal
 from app.db.repositories.session_repo import SessionRepository
 from app.db.session import get_db
 from app.models.session import SessionRecord
+from app.schemas.session_activity import SessionActivityResponse
 from app.schemas.sessions import (
     SessionCreateRequest,
     SessionListResponse,
@@ -17,6 +18,7 @@ from app.schemas.sessions import (
     StepUpVerifyResponse,
     TrustLevel,
 )
+from app.services.session_query_service import get_session_activity
 
 router = APIRouter(prefix="/sessions", tags=["Session Trust Management"])
 
@@ -27,6 +29,11 @@ router = APIRouter(prefix="/sessions", tags=["Session Trust Management"])
     summary="List active sessions for merchant domain",
 )
 def list_sessions(
+    q: str | None = Query(None, max_length=128),
+    status_filter: str | None = Query(None, alias="status"),
+    trust_level: str | None = Query(None),
+    user_id: UUID | None = Query(None),
+    sort: str = Query("-last_activity_at", description="last_activity_at, created_at, risk_score or status"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     principal: AuthenticatedPrincipal = Depends(get_current_principal),
@@ -34,7 +41,16 @@ def list_sessions(
 ) -> SessionListResponse:
     repo = SessionRepository(db)
     offset = (page - 1) * page_size
-    items, total = repo.list_by_merchant(principal.merchant_id, limit=page_size, offset=offset)
+    items, total = repo.list_by_merchant(
+        principal.merchant_id,
+        limit=page_size,
+        offset=offset,
+        q=q,
+        status=status_filter,
+        trust_level=trust_level,
+        user_id=user_id,
+        sort=sort,
+    )
     return SessionListResponse(
         items=[SessionResponse.model_validate(s) for s in items],
         total=total,
@@ -64,6 +80,23 @@ def get_session(
         )
 
     return SessionResponse.model_validate(session)
+
+
+@router.get(
+    "/{session_id}/activity",
+    response_model=SessionActivityResponse,
+    summary="Read session events, payouts, incidents, risk ledger and sequences",
+    description=(
+        "Merchant-scoped investigation projection. Sequence windows are taken "
+        "from the running risk configuration, not from documentation."
+    ),
+)
+def get_session_activity_route(
+    session_id: UUID,
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> SessionActivityResponse:
+    return get_session_activity(db, principal, session_id)
 
 
 @router.post(

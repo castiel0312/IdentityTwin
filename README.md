@@ -5,7 +5,9 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-red.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/Tests-435%20Passed-brightgreen.svg)]()
+[![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org/)
+[![Tests](https://img.shields.io/badge/Tests-469%20Passed-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)]()
 
 ---
@@ -14,7 +16,7 @@
 
 IdentityTwin prevents account takeover, credential stuffing, and unauthorized money movement in merchant payment operations. Instead of treating identity as a binary login check, IdentityTwin continuously assesses behavioral signals (keystroke flight times, mouse trajectories, session anomalies) and routes protected operations through a **centralized Trust Gateway**.
 
-This repository contains the **Backend Foundation and Trust Gateway (Person 1)**:
+This repository contains the backend foundation, Trust Gateway, and delivered React console:
 - Core FastAPI v1 REST application with structured logging and consistent error contracts.
 - Centralized gateway routing policy enforcing 4 distinct trust levels.
 - Protected payout execution sequence with database-backed idempotency guards.
@@ -23,6 +25,7 @@ This repository contains the **Backend Foundation and Trust Gateway (Person 1)**
 - Inbound PayPal webhook receiver (`POST /v1/webhooks/paypal`) with cryptographic signature verification and reconciliation.
 - Incident review and approval APIs with strict Role-Based Access Control (RBAC).
 - SQLAlchemy 2.0 models and Alembic migrations.
+- React 19 + strict TypeScript merchant/analyst console covering all 10 product modules.
 - Exported OpenAPI specification for frontend and team integration.
 - Automated test suite covering all security invariants.
 
@@ -113,11 +116,22 @@ IdentityTwin/
 │       │   │   ├── service.py              # Deterministic baseline risk engine & interface
 │       │   │   └── schemas.py              # Risk evaluation models, named signals
 │       │   └── services/                   # EventService, IncidentService
-│       ├── tests/                          # 435 comprehensive automated tests
+│       ├── tests/                          # 469 backend tests
 │       ├── alembic/                        # Database migration scripts
 │       ├── alembic.ini                     # Alembic configuration
 │       ├── pyproject.toml                  # Python package configuration & dependencies
 │       └── Dockerfile                      # Production container definition
+├── frontend/
+│   ├── src/
+│   │   ├── app.tsx                         # Authenticated route map for all 10 modules
+│   │   ├── pages/                          # Module and detail pages
+│   │   ├── features/                       # Payout, incident, agent and evidence workflows
+│   │   ├── components/                     # App shell, states and accessible UI primitives
+│   │   ├── lib/                            # API client, auth, SSE, query policy, formatting
+│   │   └── types/api.ts                    # Generated from packages/contracts/openapi.json
+│   ├── e2e/console.spec.ts                 # Playwright journeys against an isolated API
+│   ├── playwright.config.ts                # Disposable E2E DB and dedicated ports
+│   └── README.md                           # Console setup, safety rules and limitations
 ├── packages/
 │   └── contracts/
 │       ├── README.md                       # Contracts guide for other teammates
@@ -127,6 +141,7 @@ IdentityTwin/
 │   ├── agentic-commerce.md                 # Internal agentic commerce contract (Person 3)
 │   ├── api-contracts.md                    # Detailed endpoint contracts and JSON payloads
 │   ├── security-boundaries.md              # Security boundaries & production roadmap
+│   ├── frontend-delivery-report.md          # Console delivery results and known gaps
 │   └── local-development.md                # Local setup guide & command reference
 ├── scripts/
 │   ├── seed_demo.py                        # Seeds test merchants, users, sessions, incidents
@@ -172,15 +187,43 @@ API runs on `http://localhost:8000`.
 - Liveness Probe: `http://localhost:8000/health`
 - Readiness Probe: `http://localhost:8000/ready`
 
+### 4. Start the React Console
+Requires Node.js 20.19+. In a second terminal:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+The console runs on `http://127.0.0.1:5173` and proxies `/v1` to the API. Use
+the development personas on the login page. See [`frontend/README.md`](frontend/README.md)
+for production token login, test commands and security limitations.
+
 ---
 
 ## 5. Automated Tests & Quality Checks
 
-Run the automated test suite (435 tests covering all security boundaries, step-up verification, provider isolation matrix, agentic commerce authorization, and AST bypass checks):
+Run the backend suite (469 tests covering security boundaries, step-up
+verification, provider isolation, agentic commerce authorization, read-model
+contracts, and AST bypass checks):
 
 ```bash
 make test
 ```
+
+Run the console checks:
+
+```bash
+cd frontend
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+```
+
+`npm run test:e2e` starts an isolated API on port `8010`, Vite on port `5174`,
+and a disposable SQLite database at `apps/api/identitytwin_e2e.db`. It does not
+touch the developer database.
 
 Run linting and formatting:
 ```bash
@@ -193,13 +236,19 @@ Export OpenAPI contracts without drift:
 make openapi
 ```
 
+Regenerate the console's TypeScript schema after an API contract change:
+```bash
+cd frontend
+npm run openapi:types
+```
+
 ---
 
 ## 6. Teammate Handoff & Integration Matrix
 
 | Teammate | Focus Area | Integration Touchpoint | Status |
 | :--- | :--- | :--- | :--- |
-| **Frontend** | React Dashboard | `packages/contracts/openapi.json` — Generate TypeScript types via `npx openapi-typescript`. | Contract Ready (20 paths) |
+| **Frontend** | React Dashboard | `frontend/` consumes `packages/contracts/openapi.json` via generated TypeScript types; all 10 modules implemented. | Console delivered (64 API paths) |
 | **Person 2** | Risk Intelligence | Implement `IRiskEngineService` in `app/risk/service.py`. Consume `SecurityEvent` telemetry. | 7 Named Signals Connected |
 | **Person 3** | PayPal Integration | `PayPalSandboxAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox credentials in `.env`. Internal agentic commerce adapter in `app/gateway/agentic.py` (`POST /v1/agentic/payouts`). | Trust Gateway sends allowed payouts to PayPal Sandbox when configured |
 | **Person 4** | Honey Workspace | `DecoyHoneyAdapter` in `app/gateway/provider.py`; workspace, canaries, containment, and evidence. | Suspicious payouts persist in the synthetic honey workspace; the decoy branch never invokes the PayPal adapter |

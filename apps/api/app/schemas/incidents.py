@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.evidence import EvidenceSealSummary
+
 
 class IncidentSeverity(str, Enum):
     LOW = "LOW"
@@ -67,3 +69,25 @@ class IncidentActionResponse(BaseModel):
     timestamp: datetime
     notes: str | None = None
     message: str = "Incident action recorded in audit log."
+
+
+class IncidentActionAvailability(BaseModel):
+    action: str
+    label: str
+    allowed: bool
+    required_roles: list[str] = Field(default_factory=list)
+    reason: str | None = None
+    destructive: bool = False
+
+
+class IncidentActionsResponse(BaseModel):
+    incident_id: UUID
+    current_status: IncidentStatus
+    principal_role: str
+    actions: list[IncidentActionAvailability] = Field(default_factory=list)
+
+
+class IncidentSealResponse(BaseModel):
+    incident_id: UUID
+    sealed: bool
+    seal: EvidenceSealSummary | None = None
