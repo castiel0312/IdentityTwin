@@ -105,8 +105,44 @@ class Settings(BaseSettings):
         description="Whether development-only authentication is permitted. Must be False in production.",
     )
     DEV_AUTH_TOKEN: str = Field(
-        default="dev-secret-token-change-in-prod",
-        description="Dev auth static bearer token for local integration testing.",
+        default="",
+        description="Dev auth static bearer token for local integration testing. Must be set explicitly.",
+    )
+
+    # Production OIDC/JWT Configuration
+    OIDC_ISSUER_URL: str = Field(
+        default="",
+        description="OIDC issuer URL (e.g., https://tenant.auth0.com, https://tenant.okta.com). Required for production.",
+    )
+    OIDC_JWKS_URL: str = Field(
+        default="",
+        description="OIDC JWKS URL for public key retrieval. If not set, derived from issuer URL.",
+    )
+    OIDC_AUDIENCE: str = Field(
+        default="identitytwin-api",
+        description="Expected JWT audience claim.",
+    )
+    OIDC_ALGORITHMS: list[str] = Field(
+        default=["RS256"],
+        description="Allowed JWT signing algorithms.",
+    )
+    OIDC_REQUIRED_CLAIMS: list[str] = Field(
+        default=["sub", "email", "roles"],
+        description="Required JWT claims for authentication.",
+    )
+    OIDC_ROLE_CLAIM: str = Field(
+        default="roles",
+        description="JWT claim name containing user roles.",
+    )
+    OIDC_MERCHANT_CLAIM: str = Field(
+        default="merchant_id",
+        description="JWT claim name containing merchant ID.",
+    )
+    OIDC_CACHE_JWKS_SECONDS: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="JWKS cache TTL in seconds.",
     )
 
     # Database
@@ -313,6 +349,17 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Production mock override: must be explicitly set to allow mock provider
+    # in production. Never enabled automatically. Requires intentional product
+    # owner authorization.
+    PAYMENT_PROVIDER_PRODUCTION_MOCK_OVERRIDE: bool = Field(
+        default=False,
+        description=(
+            "Explicit override to permit PAYMENT_PROVIDER='mock' in production. "
+            "Never enable automatically. Requires product owner authorization."
+        ),
+    )
+
     @field_validator("PAYMENT_PROVIDER", mode="before")
     @classmethod
     def validate_payment_provider(cls, value: object, info: ValidationInfo) -> str:
@@ -376,6 +423,28 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "SQLite cannot be used as the database in production. Use PostgreSQL."
                 )
+            if not self.OIDC_ISSUER_URL.strip():
+                raise ValueError(
+                    "OIDC_ISSUER_URL is required when ENVIRONMENT is 'production'"
+                )
+            if not self.OIDC_AUDIENCE.strip():
+                raise ValueError(
+                    "OIDC_AUDIENCE is required when ENVIRONMENT is 'production'"
+                )
+            if not self.DEV_AUTH_TOKEN.strip():
+                raise ValueError(
+                    "DEV_AUTH_TOKEN must be explicitly set (cannot use default) in production"
+                )
+            # Production must reject the mock provider by default. A separate,
+            # strongly controlled override is required if the product owner
+            # explicitly authorizes mock operation in production.
+            if self.PAYMENT_PROVIDER == PAYMENT_PROVIDER_MOCK:
+                if not getattr(self, "PAYMENT_PROVIDER_PRODUCTION_MOCK_OVERRIDE", False):
+                    raise ValueError(
+                        "PAYMENT_PROVIDER='mock' is not permitted in production. "
+                        "Use PAYMENT_PROVIDER='paypal_sandbox' or set the explicit "
+                        "PAYMENT_PROVIDER_PRODUCTION_MOCK_OVERRIDE flag."
+                    )
         return self
 
 

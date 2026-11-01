@@ -132,6 +132,10 @@ class AgentAuthorizationContext(BaseModel):
     session_id: UUID | None = None
     scopes: list[str] = Field(default_factory=list)
     max_amount: float | None = None
+    reserved_amount: float = Field(
+        default=0.0,
+        description="Spending capacity reserved against this grant for the pending payout",
+    )
     issued_at: datetime | None = None
     expires_at: datetime | None = None
 
@@ -145,6 +149,7 @@ class AgentAuthorizationContext(BaseModel):
             "session_id": str(self.session_id) if self.session_id else None,
             "scopes": list(self.scopes),
             "max_amount": self.max_amount,
+            "reserved_amount": self.reserved_amount,
             "issued_at": self.issued_at.isoformat() if self.issued_at else None,
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
         }

@@ -125,19 +125,45 @@ async def receive_paypal_webhook(
         payout = db.scalars(stmt).first()
         if payout:
             reconciled_payout_id = str(payout.payout_id)
+            new_status = None
             if event_type in (
                 "PAYMENT.PAYOUTSBATCH.SUCCESS",
                 "PAYMENT.PAYOUTS-ITEM.SUCCEEDED",
             ):
-                payout.status = "reconciled_completed"
-                reconciled_status = payout.status
+                new_status = "reconciled_completed"
             elif event_type in (
                 "PAYMENT.PAYOUTSBATCH.DENIED",
                 "PAYMENT.PAYOUTS-ITEM.BLOCKED",
                 "PAYMENT.PAYOUTS-ITEM.DENIED",
             ):
-                payout.status = "provider_denied"
-                reconciled_status = payout.status
+                new_status = "provider_denied"
+            elif event_type in (
+                "PAYMENT.PAYOUTSBATCH.FAILED",
+                "PAYMENT.PAYOUTS-ITEM.FAILED",
+                "PAYMENT.PAYOUTS-ITEM.RETURNED",
+            ):
+                new_status = "failed"
+            elif event_type == "PAYMENT.PAYOUTSBATCH.PROCESSING":
+                new_status = "processing"
+            elif event_type == "PAYMENT.PAYOUTSBATCH.CANCELED":
+                new_status = "blocked"
+
+            if new_status:
+                # Validate transition
+                from app.gateway.service import TrustGatewayService
+                gateway = TrustGatewayService(
+                    policy=None,
+                    risk_engine=None,
+                    provider_adapter=None,
+                    decoy_adapter=None,
+                )
+                try:
+                    gateway._validate_status_transition(payout.status, new_status)
+                    payout.status = new_status
+                    reconciled_status = payout.status
+                except ValueError:
+                    # Invalid transition - log but don't update
+                    pass
 
     # Save the deduplication record and the reconciled payout status in one
     # transaction. A crash must not leave an event marked processed while the

@@ -1,10 +1,13 @@
 from collections.abc import Callable
 from enum import Enum
 from uuid import UUID
+import time
 
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+import jwt
+from jwt import PyJWKClient
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -51,6 +54,88 @@ ALLOWED_DEV_TOKENS = {
 }
 
 
+# JWKS Client for production JWT validation
+_jwks_client: PyJWKClient | None = None
+_jwks_cache_time: float = 0
+
+
+def _get_jwks_client() -> PyJWKClient:
+    global _jwks_client, _jwks_cache_time
+    now = time.time()
+    if _jwks_client is None or (now - _jwks_cache_time) > settings.OIDC_CACHE_JWKS_SECONDS:
+        jwks_url = settings.OIDC_JWKS_URL or f"{settings.OIDC_ISSUER_URL.rstrip('/')}/.well-known/jwks.json"
+        _jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+        _jwks_cache_time = now
+    return _jwks_client
+
+
+def _validate_jwt_token(token: str) -> dict:
+    """Validate JWT token using JWKS and return decoded claims."""
+    try:
+        jwks_client = _get_jwks_client()
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=settings.OIDC_ALGORITHMS,
+            audience=settings.OIDC_AUDIENCE,
+            issuer=settings.OIDC_ISSUER_URL,
+            options={"require": settings.OIDC_REQUIRED_CLAIMS},
+        )
+        return claims
+    except jwt.ExpiredSignatureError:
+        raise AuthenticationRequiredException("JWT token has expired.")
+    except jwt.InvalidAudienceError:
+        raise AuthenticationRequiredException("JWT token audience mismatch.")
+    except jwt.InvalidIssuerError:
+        raise AuthenticationRequiredException("JWT token issuer mismatch.")
+    except jwt.InvalidTokenError as exc:
+        raise AuthenticationRequiredException(f"Invalid JWT token: {exc}")
+
+
+def _extract_principal_from_claims(claims: dict) -> AuthenticatedPrincipal:
+    """Extract AuthenticatedPrincipal from validated JWT claims."""
+    sub = claims.get("sub")
+    email = claims.get("email")
+    roles = claims.get(settings.OIDC_ROLE_CLAIM, [])
+    merchant_id_str = claims.get(settings.OIDC_MERCHANT_CLAIM)
+
+    if not sub or not email:
+        raise AuthenticationRequiredException("JWT token missing required claims (sub, email).")
+
+    # Determine role
+    role = RoleEnum.MERCHANT
+    if isinstance(roles, list) and "analyst" in roles:
+        role = RoleEnum.ANALYST
+    elif isinstance(roles, list) and "admin" in roles:
+        role = RoleEnum.ADMIN
+
+    # Parse merchant_id
+    if not merchant_id_str:
+        raise AuthenticationRequiredException(f"JWT token missing required claim: {settings.OIDC_MERCHANT_CLAIM}")
+    try:
+        merchant_id = UUID(merchant_id_str)
+    except ValueError:
+        raise AuthenticationRequiredException(f"Invalid merchant_id in JWT token: {merchant_id_str}")
+
+    # Parse user_id from sub
+    try:
+        user_id = UUID(sub)
+    except ValueError:
+        # If sub is not a UUID, generate deterministic UUID from sub
+        import hashlib
+        sub_hash = hashlib.sha256(sub.encode()).hexdigest()[:32]
+        user_id = UUID(sub_hash[:8] + "-" + sub_hash[8:12] + "-" + sub_hash[12:16] + "-" + sub_hash[16:20] + "-" + sub_hash[20:32])
+
+    return AuthenticatedPrincipal(
+        user_id=user_id,
+        merchant_id=merchant_id,
+        role=role,
+        username=email,
+        auth_method="oidc_jwt",
+    )
+
+
 def get_current_principal(
     bearer: HTTPAuthorizationCredentials | None = Depends(security_scheme),
     x_dev_role: str | None = Header(None, alias="X-Dev-Role"),
@@ -73,12 +158,9 @@ def get_current_principal(
 
     # Production authentication path
     if settings.ENVIRONMENT.lower() == "production":
-        # Production JWT/OIDC validation hook (e.g. PyJWT with JWKS from Auth0 / Okta / Cognito)
-        # For security, development headers and tokens are strictly rejected in production.
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Production OIDC/OAuth2 provider verification must be configured with JWKS.",
-        )
+        # Production JWT/OIDC validation using JWKS
+        claims = _validate_jwt_token(token)
+        return _extract_principal_from_claims(claims)
 
     # Development-only authentication mechanism
     if settings.ALLOW_DEV_AUTH and settings.ENVIRONMENT.lower() == "development":

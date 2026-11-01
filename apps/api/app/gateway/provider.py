@@ -73,6 +73,22 @@ class ProviderPayoutResult(BaseModel):
     )
     details: dict[str, Any] = Field(default_factory=dict)
     executed_at: datetime
+    batch_status: str | None = Field(
+        default=None,
+        description="Raw PayPal batch status: PENDING, PROCESSING, SUCCESS, DENIED, FAILED, RETURNED, BLOCKED"
+    )
+    sender_batch_id: str | None = Field(
+        default=None,
+        description="Locally generated sender batch ID (never stored as PayPal-confirmed reference)"
+    )
+    provider_batch_id: str | None = Field(
+        default=None,
+        description="PayPal-confirmed payout batch ID, only when returned by PayPal"
+    )
+    sender_item_id: str | None = Field(
+        default=None,
+        description="Locally generated sender item ID (never stored as PayPal-confirmed reference)"
+    )
 
 
 class IPaymentProviderAdapter(Protocol):
@@ -81,6 +97,8 @@ class IPaymentProviderAdapter(Protocol):
     def execute_payout(self, request: PayoutRequest, merchant_id: UUID) -> ProviderPayoutResult: ...
 
     def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes) -> bool: ...
+
+    def get_payout_batch(self, payout_batch_id: str) -> ProviderPayoutResult | None: ...
 
 
 def resolve_provider_name(result: ProviderPayoutResult) -> str:
@@ -151,8 +169,10 @@ class MockPaymentProviderAdapter:
                 "currency": request.currency,
                 "merchant_id": str(merchant_id),
                 "invocation_number": self.invocation_count,
+                "batch_status": "SUCCESS",
             },
             executed_at=now,
+            batch_status="SUCCESS",
         )
         self.executed_transactions.append(result)
         return result
@@ -172,6 +192,14 @@ class MockPaymentProviderAdapter:
         can accept one.
         """
         return False
+
+    def get_payout_batch(self, payout_batch_id: str) -> ProviderPayoutResult | None:
+        """
+        The mock adapter does not support payout batch retrieval.
+
+        Returns None: there are no real PayPal batches to query.
+        """
+        return None
 
 
 class DecoyHoneyAdapter:
@@ -470,6 +498,51 @@ class PayPalSandboxAdapter:
                 message="PayPal Sandbox rejected authentication token for payout execution.",
                 code="PAYPAL_TOKEN_INVALID",
             )
+        elif res.status_code == 403:
+            # PayPal 403 can indicate permission failure or country/account
+            # restrictions (e.g. PAYOUT_NOT_AVAILABLE). Preserve the original
+            # error details so operators can distinguish the cause.
+            try:
+                err_data = res.json()
+            except Exception:
+                err_data = {"raw": res.text[:200]}
+            err_name = err_data.get("name") or "PERMISSION_DENIED"
+            err_msg = err_data.get("message") or "PayPal Sandbox rejected the payout request."
+            err_details = err_data.get("details", [])
+            debug_id = err_data.get("debug_id") or getattr(res, "headers", {}).get("PayPal-Debug-Id")
+
+            # PAYOUT_NOT_AVAILABLE indicates a PayPal account/country restriction,
+            # not a successful payout. Report it accurately.
+            if err_name == "PAYOUT_NOT_AVAILABLE":
+                raise PaymentProviderException(
+                    message=(
+                        "PayPal Sandbox payout not available: the configured "
+                        "Sandbox account or country is restricted from sending payouts. "
+                        f"{err_msg}"
+                    ),
+                    code="PAYPAL_PAYOUT_NOT_AVAILABLE",
+                    status_code=403,
+                    details={
+                        "paypal_error_name": err_name,
+                        "paypal_error_message": err_msg,
+                        "paypal_details": err_details,
+                        "debug_id": debug_id,
+                        "restriction_type": "account_or_country",
+                        "status_code": 403,
+                    },
+                )
+            raise PaymentProviderException(
+                message=f"PayPal Sandbox payout permission denied: {err_name} - {err_msg}",
+                code="PAYPAL_PAYOUT_PERMISSION_DENIED",
+                status_code=403,
+                details={
+                    "paypal_error_name": err_name,
+                    "paypal_error_message": err_msg,
+                    "paypal_details": err_details,
+                    "debug_id": debug_id,
+                    "status_code": 403,
+                },
+            )
         elif res.status_code == 400 or res.status_code == 422:
             try:
                 err_data = res.json()
@@ -477,32 +550,75 @@ class PayPalSandboxAdapter:
                 err_data = {"raw": res.text[:200]}
             err_name = err_data.get("name") or "UNPROCESSABLE_ENTITY"
             err_msg = err_data.get("message") or "PayPal payout was rejected by sandbox policy."
+            err_details = err_data.get("details", [])
+            debug_id = err_data.get("debug_id") or getattr(res, "headers", {}).get("PayPal-Debug-Id")
+
+            # Detect duplicate request errors from PayPal.
+            is_duplicate = err_name in ("DUPLICATE_REQUEST", "DUPLICATE_PAYOUT_REQUEST") or any(
+                d.get("issue") == "DUPLICATE_REQUEST" for d in err_details if isinstance(d, dict)
+            )
+
             raise PaymentProviderException(
                 message=f"PayPal Sandbox payout rejected: {err_name} - {err_msg}",
-                code="PAYPAL_PAYOUT_REJECTED",
+                code="PAYPAL_DUPLICATE_REQUEST" if is_duplicate else "PAYPAL_PAYOUT_REJECTED",
+                status_code=res.status_code,
                 details={
                     "paypal_error_name": err_name,
-                    "details": err_data.get("details", []),
+                    "paypal_error_message": err_msg,
+                    "paypal_details": err_details,
+                    "debug_id": debug_id,
+                    "status_code": res.status_code,
+                    "is_duplicate": is_duplicate,
                 },
             )
         elif res.status_code not in (200, 201):
+            # Temporary provider outage or other unexpected server error.
+            try:
+                err_data = res.json()
+            except Exception:
+                err_data = {}
+            err_name = err_data.get("name") or "UNEXPECTED_RESPONSE"
+            err_msg = err_data.get("message") or f"PayPal Sandbox returned HTTP {res.status_code}."
+            debug_id = err_data.get("debug_id") or getattr(res, "headers", {}).get("PayPal-Debug-Id")
+
+            is_temporary = res.status_code in (500, 502, 503, 504)
+
             raise PaymentProviderException(
-                message=f"PayPal Sandbox returned unexpected status {res.status_code}.",
-                code="PAYPAL_UNEXPECTED_RESPONSE",
-                details={"status_code": res.status_code},
+                message=err_msg,
+                code="PAYPAL_TEMPORARY_OUTAGE" if is_temporary else "PAYPAL_UNEXPECTED_RESPONSE",
+                status_code=res.status_code,
+                details={
+                    "paypal_error_name": err_name,
+                    "paypal_error_message": err_msg,
+                    "debug_id": debug_id,
+                    "status_code": res.status_code,
+                    "is_temporary": is_temporary,
+                },
             )
 
         res_data = self._parse_json_object(res, "PAYPAL_INVALID_RESPONSE")
         batch_header = res_data.get("batch_header") or {}
         if not isinstance(batch_header, dict):
             batch_header = {}
-        payout_batch_id = batch_header.get("payout_batch_id") or sender_batch_id
+        payout_batch_id = batch_header.get("payout_batch_id")
         batch_status = batch_header.get("batch_status", "PENDING")
 
+        is_terminal_success = batch_status == "SUCCESS"
+
+        # Provider reference integrity: never substitute a locally generated
+        # sender_batch_id for a PayPal-confirmed payout_batch_id. If PayPal
+        # does not return a payout_batch_id, classify as ambiguous and
+        # require reconciliation - do not fabricate a provider reference.
+        if payout_batch_id is None:
+            provider_transaction_id = sender_batch_id
+            is_terminal_success = False  # No provider confirmation = not terminal success
+        else:
+            provider_transaction_id = payout_batch_id
+
         return ProviderPayoutResult(
-            success=True,
+            success=is_terminal_success,
             provider_name="paypal_sandbox",
-            provider_transaction_id=payout_batch_id,
+            provider_transaction_id=provider_transaction_id,
             environment="paypal_sandbox",
             details={
                 "batch_status": batch_status,
@@ -513,8 +629,104 @@ class PayPalSandboxAdapter:
                 "amount": request.amount,
                 "currency": request.currency,
                 "merchant_id": str(merchant_id),
+                "provider_batch_id": payout_batch_id,
             },
             executed_at=now_executed,
+            batch_status=batch_status,
+            sender_batch_id=sender_batch_id,
+            provider_batch_id=payout_batch_id,
+            sender_item_id=sender_item_id,
+        )
+
+    def get_payout_batch(self, payout_batch_id: str) -> ProviderPayoutResult | None:
+        """
+        Retrieve payout batch details from PayPal Sandbox.
+
+        Uses GET /v1/payments/payouts/{payout_batch_id} to fetch the current
+        status of a payout batch. Returns None if the batch is not found.
+
+        Never regresses a terminal successful state: if the stored status is
+        already "completed" and PayPal returns a non-terminal status, the
+        stored state is preserved.
+        """
+        if not payout_batch_id:
+            return None
+
+        token = self._get_access_token()
+        url = f"{self.base_url}/v1/payments/payouts/{payout_batch_id}"
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            with httpx.Client(timeout=self.timeout, transport=self.transport) as client:
+                res = client.get(url, headers=headers)
+        except httpx.TimeoutException:
+            raise ProviderTimeoutException(
+                message="PayPal Sandbox payout batch retrieval timed out.",
+                code="PAYPAL_PAYOUT_RETRIEVAL_TIMEOUT",
+                details={"payout_batch_id": payout_batch_id},
+            ) from None
+        except httpx.RequestError as exc:
+            raise PaymentProviderException(
+                message=f"Network failure retrieving PayPal payout batch: {type(exc).__name__}",
+                code="PAYPAL_PAYOUT_RETRIEVAL_FAILURE",
+                details={"payout_batch_id": payout_batch_id},
+            ) from None
+
+        if res.status_code == 404:
+            return None
+        if res.status_code == 429:
+            raise ProviderRateLimitException(
+                message="PayPal Sandbox rate limit exceeded during payout retrieval.",
+                code="PAYPAL_RATE_LIMIT",
+                details={"payout_batch_id": payout_batch_id},
+            )
+        if res.status_code == 401:
+            self._token_cache = None
+            raise AuthenticationRequiredException(
+                message="PayPal Sandbox rejected authentication token for payout retrieval.",
+                code="PAYPAL_TOKEN_INVALID",
+            )
+        if res.status_code not in (200,):
+            raise PaymentProviderException(
+                message=f"PayPal Sandbox payout retrieval returned unexpected status {res.status_code}.",
+                code="PAYPAL_UNEXPECTED_RESPONSE",
+                details={"status_code": res.status_code, "payout_batch_id": payout_batch_id},
+            )
+
+        res_data = self._parse_json_object(res, "PAYPAL_INVALID_RESPONSE")
+        batch_header = res_data.get("batch_header") or {}
+        if not isinstance(batch_header, dict):
+            batch_header = {}
+        batch_status = batch_header.get("batch_status", "PENDING")
+
+        items = res_data.get("items", [])
+        payout_item_id = None
+        if isinstance(items, list) and len(items) > 0:
+            first_item = items[0]
+            if isinstance(first_item, dict):
+                payout_item_id = first_item.get("payout_item_id")
+
+        return ProviderPayoutResult(
+            success=batch_status == "SUCCESS",
+            provider_name="paypal_sandbox",
+            provider_transaction_id=payout_batch_id,
+            environment="paypal_sandbox",
+            details={
+                "batch_status": batch_status,
+                "payout_batch_id": payout_batch_id,
+                "payout_item_id": payout_item_id,
+                "time_created": batch_header.get("time_created"),
+                "time_completed": batch_header.get("time_completed"),
+            },
+            executed_at=datetime.now(timezone.utc),
+            batch_status=batch_status,
+            sender_batch_id=None,
+            provider_batch_id=payout_batch_id,
+            sender_item_id=payout_item_id,
         )
 
     def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes) -> bool:

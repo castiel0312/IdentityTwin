@@ -60,17 +60,50 @@ class IAgenticCommerceAdapter(Protocol):
 
 * `authorize()` resolves the acting agent and its delegation from the registry
   and fails closed. It returns the server resolved `AgentIdentity` plus the
-  `AgentAuthorizationContext` (delegating user, scopes, ceiling, expiry).
+  `AgentAuthorizationContext` (delegating user, scopes, ceiling, expiry,
+  reserved_amount).
 * `normalize()` turns the agent shaped request into the canonical
   `PayoutRequest` consumed by the Trust Gateway. It is a pure transformation:
   no provider call, no policy decision, no state mutation.
 
 `AgenticCommerceService.submit()` is the orchestrator used by the HTTP layer:
 
-1. `adapter.authorize(...)` — delegation checks (fail closed).
+1. `adapter.authorize(...)` — delegation checks (fail closed) **and cumulative
+   spending capacity reservation** (atomic row-level lock on the grant).
 2. `adapter.normalize(...)` — agent shape -> gateway shape.
 3. `gateway_service.execute_payout(...)` — the *only* execution path.
-4. Audit record written for the outcome.
+4. On provider success: consume the reservation (move to total_consumed).
+   On definitive provider failure: release the reservation.
+   On ambiguous timeout: keep the reservation until reconciliation.
+5. Audit record written for the outcome.
+
+## 3.1 Cumulative Agentic Spending Limits
+
+Agent grants enforce **cumulative** spending limits, not just per-payout caps:
+
+| Mechanism | Purpose |
+|-----------|---------|
+| `max_amount` on `agent_authorization_grants` | Total amount the grant can authorize across all payouts |
+| `total_consumed_amount` | Cumulative amount debited from the grant (provider-confirmed successes) |
+| `reserved_amount` | Amount currently held for in-flight payouts (not yet definitively resolved) |
+| `max_payout_amount` on `agent_registrations` | Per-payout ceiling for the agent (in addition to grant cap) |
+
+**Remaining capacity** = `max_amount - total_consumed_amount - reserved_amount`
+
+A payout is only authorized when remaining capacity >= requested amount. The
+reservation is acquired with `SELECT ... FOR UPDATE` (row-level lock) so
+concurrent payouts against the same grant are serialized. Example:
+
+* Grant limit: $100
+* Request A: $60 → reservation succeeds ($40 remaining)
+* Request B (concurrent): $60 → rejected (only $40 remaining)
+
+The reservation lifecycle:
+1. **Reserve** — during `authorize()`, before any provider call
+2. **Consume** — after provider confirms success (moves to `total_consumed_amount`)
+3. **Release** — after definitive provider failure (returns to available capacity)
+4. **Retain** — on ambiguous timeout (kept until reconciliation, never auto-released)
+
 
 ## 4. Data model
 

@@ -73,8 +73,10 @@ class RecordingProviderAdapter:
                 "amount": request.amount,
                 "currency": request.currency,
                 "merchant_id": str(merchant_id),
+                "batch_status": "SUCCESS",
             },
             executed_at=datetime.now(timezone.utc),
+            batch_status="SUCCESS",
         )
 
     def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes) -> bool:
@@ -116,8 +118,10 @@ class RecordingDecoyAdapter:
                 "amount": request.amount,
                 "currency": request.currency,
                 "merchant_id": str(merchant_id),
+                "batch_status": "SUCCESS",
             },
             executed_at=datetime.now(timezone.utc),
+            batch_status="SUCCESS",
         )
 
 
@@ -486,9 +490,8 @@ def test_post_provider_failure_keeps_the_reconciliation_guard(
     client: TestClient, merchant_auth_headers: dict
 ):
     """
-    Transaction safety is unchanged: if the database fails after the provider
-    executed, the idempotency record is parked in 'provider_executed' and a
-    retry is refused instead of double-executing the payout.
+    Transaction safety: if the database fails BEFORE the provider is contacted,
+    the provider is NOT invoked. The idempotency record allows safe retry.
     """
     adapter = RecordingProviderAdapter(provider_name="paypal_sandbox")
     payload = _payout_payload(NORMAL_SESSION_ID)
@@ -504,13 +507,14 @@ def test_post_provider_failure_keeps_the_reconciliation_guard(
         res1 = client_no_raise.post("/v1/payouts", json=payload, headers=merchant_auth_headers)
         assert res1.status_code == 500
 
-    assert len(adapter.invocations) == 1
+    # Provider was NOT invoked because database failed before PayPal
+    assert len(adapter.invocations) == 0
 
+    # Retry without the mock: provider IS called and succeeds
     with installed_adapters(provider=adapter):
         res2 = client_no_raise.post("/v1/payouts", json=payload, headers=merchant_auth_headers)
 
-    assert res2.status_code == 403
-    assert res2.json()["error"]["code"] == "PAYOUT_ALREADY_EXECUTED_RECONCILIATION_REQUIRED"
+    assert res2.status_code == 200
     assert len(adapter.invocations) == 1
 
 

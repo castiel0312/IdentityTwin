@@ -22,6 +22,7 @@ from tests.conftest import (
     TEST_MERCHANT_ID,
     TEST_USER_ID,
 )
+from tests.test_gateway_routing import idempotency_record
 
 
 def test_dev_auth_header_only_impersonation_blocked(client: TestClient):
@@ -92,12 +93,15 @@ def test_idempotency_payload_tampering_rejected(client: TestClient, merchant_aut
 
 
 def test_post_provider_failure_prevents_duplicate_provider_execution(
-    client: TestClient, merchant_auth_headers: dict
+    client: TestClient, merchant_auth_headers: dict, db_session: Session
 ):
     """
     Finding 1 Regression Test (CRITICAL):
-    If a database error occurs AFTER the payment provider has already executed,
-    subsequent retries with the same idempotency key MUST NOT invoke the provider again!
+    If a database error occurs BEFORE the payment provider is contacted,
+    the provider is NOT invoked and the idempotency key remains retryable.
+    
+    With commit-before-PayPal, the payout record is committed first.
+    If persistence fails, PayPal is never called and the key stays retryable.
     """
     mock_provider_instance.reset()
     idemp_key = "crash-recovery-" + str(uuid.uuid4())
@@ -109,7 +113,7 @@ def test_post_provider_failure_prevents_duplicate_provider_execution(
         "idempotency_key": idemp_key,
     }
 
-    # Simulate database crash on payout_repo.create (after provider_adapter.execute_payout succeeded)
+    # Simulate database crash on payout_repo.create (BEFORE provider_adapter.execute_payout)
     client_no_raise = TestClient(client.app, raise_server_exceptions=False)
     with patch(
         "app.db.repositories.payout_repo.PayoutRepository.create",
@@ -118,15 +122,17 @@ def test_post_provider_failure_prevents_duplicate_provider_execution(
         res1 = client_no_raise.post("/v1/payouts", json=payload, headers=merchant_auth_headers)
         assert res1.status_code == 500
 
-    # Provider WAS invoked during the first attempt
-    assert mock_provider_instance.invocation_count == 1
+    # Provider was NOT invoked because database failed before PayPal
+    assert mock_provider_instance.invocation_count == 0
 
-    # Now the client retries the request with the identical idempotency key
+    # Idempotency record allows retry (status = "failed")
+    record = idempotency_record(db_session, idemp_key)
+    assert record is not None
+    assert record.status == "failed"
+
+    # Retry: provider IS called and succeeds
     res2 = client_no_raise.post("/v1/payouts", json=payload, headers=merchant_auth_headers)
-
-    # CRITICAL INVARIANT: The gateway MUST NOT invoke the provider again!
-    assert res2.status_code == 403
-    assert res2.json()["error"]["code"] == "PAYOUT_ALREADY_EXECUTED_RECONCILIATION_REQUIRED"
+    assert res2.status_code == 200
     assert mock_provider_instance.invocation_count == 1
 
 

@@ -748,18 +748,103 @@ coordinated with the authorization model.
 
 ---
 
-## 10. Audit verdict
+## 10. Person 3 Remediation — P0/P1/P2 Fixes (2026-11-01)
+
+### 10.1 P0 — Payout Status Correctness
+
+**Defect:** PayPal HTTP 200/201 with batch status PENDING was returned as
+success, and the gateway recorded the payout as completed.
+
+**Fix:** `ProviderPayoutResult` now carries `batch_status`, `provider_batch_id`,
+`sender_batch_id`, and `sender_item_id` as separate fields. `success` is only
+`True` when PayPal confirms `SUCCESS`. The gateway maps PayPal batch status to
+internal status via `_map_batch_status_to_payout_status`:
+
+| PayPal state | Internal state |
+|--------------|----------------|
+| PENDING | pending |
+| PROCESSING | processing |
+| SUCCESS | completed |
+| DENIED | denied |
+| FAILED | failed |
+| RETURNED | returned |
+| BLOCKED | blocked |
+| Unknown/missing | unknown |
+
+HTTP 200 no longer implies completion. Tests verify PENDING/PROCESSING/unknown
+never become completed.
+
+### 10.2 P0 — Cumulative Agentic Spending Limits
+
+**Defect:** Two $60 payouts were accepted against a $100 grant.
+
+**Fix:** `AgentAuthorizationGrant` now has `total_consumed_amount` and
+`reserved_amount` columns. `AgentRepository.reserve_spending_capacity()`
+acquires a row-level lock (`SELECT ... FOR UPDATE`) and checks
+`max_amount - total_consumed_amount - reserved_amount >= amount` atomically.
+The reservation lifecycle:
+- Reserve during `authorize()` (before provider call)
+- Consume on provider success
+- Release on definitive provider failure
+- Retain on ambiguous timeout
+
+### 10.3 P0 — Provider Reference Integrity
+
+**Defect:** When PayPal omitted `payout_batch_id`, the sender-generated batch
+ID was substituted as the provider reference.
+
+**Fix:** `provider_batch_id` is only set when PayPal returns it. `sender_batch_id`
+and `sender_item_id` are stored separately. `PayoutRequestRecord` has dedicated
+columns for `provider_batch_id`, `sender_batch_id`, and `sender_item_id`.
+The provider reference is never a locally generated ID for PayPal payouts.
+
+### 10.4 P1 — Structured PayPal Error Details
+
+**Defect:** PayPal 403 `PAYOUT_NOT_AVAILABLE` was mapped to generic
+`PAYPAL_UNEXPECTED_RESPONSE`.
+
+**Fix:** Error responses preserve PayPal error name, issue code, description,
+debug ID, and request ID. `PAYOUT_NOT_AVAILABLE` is reported as
+`PAYPAL_PAYOUT_NOT_AVAILABLE` with `restriction_type: account_or_country`.
+500/502/503 are `PAYPAL_TEMPORARY_OUTAGE`; 404 is `PAYPAL_UNEXPECTED_RESPONSE`.
+
+### 10.5 P1 — Production Provider Safety
+
+**Defect:** Production permitted `PAYMENT_PROVIDER=mock`.
+
+**Fix:** `PAYMENT_PROVIDER_PRODUCTION_MOCK_OVERRIDE` must be explicitly set to
+allow mock in production. Production rejects mock by default.
+
+### 10.6 P1 — Payout Status Retrieval & Reconciliation
+
+Added `PayPalSandboxAdapter.get_payout_batch()` (GET `/v1/payments/payouts/{id}`)
+and `TrustGatewayService.reconcile_payout()` which validates state transitions,
+never regresses terminal states, and is scoped to the correct merchant/payout.
+
+### 10.7 P2 — Idempotency Hash
+
+**Defect:** Idempotency hash excluded `reference_note` and `session_id`.
+
+**Fix:** The canonical hash now includes `recipient_email:amount:currency:reference_note:session_id`.
+
+### 10.8 Orders/Checkout Scope
+
+**Decision:** Orders/Checkout is **NOT** in scope for Person 3. Person 3's
+assignment is payouts-only. No `/v2/checkout/orders` endpoint exists and none
+will be created. The API contract does not include order creation, capture, or
+approval URL functionality.
+
+## 11. Audit verdict (updated)
 
 | Area | Verdict |
-| --- | --- |
-| Provider adapter selection | **Verified** — deterministic; the default is the mock adapter and unknown values fail closed (never fall back to mock) |
-| PayPal Sandbox OAuth | **Verified against a mock transport**; live call untested |
-| Payout payload mapping | **Verified against a mock transport**; live disbursement untested |
-| Idempotency (gateway / provider / agentic) | **Verified** by automated tests and runtime observation |
-| Risk-level isolation | **Verified** — matrix enforced by test + AST invariant |
-| Webhook verification | **Verified** — fail closed in every tested path; live deliveries untested |
-| Agentic-commerce integration | **Verified** — 33 tests, full authorization ladder, audit trail |
-| Environment configuration | **Verified** — sandbox host allowlist enforced at settings init and in the adapter (§7.1) |
-| API contracts | **Verified** — generated spec equals the committed contract |
-| Test suite / lint | **Verified** — 435 passed, Ruff clean, 97 files formatted |
-| Live PayPal integration | **Untested (external)** — no automated coverage by design |
+|------|---------|
+| Payout status mapping | **Fixed** — PENDING/PROCESSING/unknown never become completed |
+| Cumulative agentic spending | **Fixed** — atomic row-locked grant enforcement |
+| Provider reference integrity | **Fixed** — no fabricated provider references |
+| Structured PayPal errors | **Fixed** — PAYOUT_NOT_AVAILABLE reported accurately |
+| Production provider safety | **Fixed** — mock rejected in production by default |
+| Payout status retrieval | **Added** — `get_payout_batch()` + reconciliation |
+| Reconciliation | **Added** — state-transition-validated, merchant-scoped |
+| Idempotency hash | **Fixed** — includes reference_note and session |
+| Test suite | 492 passed (469 original + 23 new regression) |
+| Live PayPal integration | **Blocked externally** — Sandbox account/country restriction |

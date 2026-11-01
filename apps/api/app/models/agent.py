@@ -102,6 +102,8 @@ class AgentAuthorizationGrant(Base, TimestampMixin):
     )
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     max_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_consumed_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    reserved_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import (
     DuplicateRequestException,
     InsufficientPermissionsException,
+    ProviderTimeoutException,
 )
 from app.core.security import AuthenticatedPrincipal
 from app.db.repositories.agent_repo import AgentRepository
@@ -61,6 +62,7 @@ from app.schemas.agentic import (
     AgentScope,
 )
 from app.schemas.payouts import PayoutRequest, PayoutResponse
+from app.core.exceptions import PolicyViolationException
 
 
 @runtime_checkable
@@ -205,7 +207,32 @@ class AgenticCommerceAdapter:
                 details={"required_scope": scope},
             )
 
-        self._enforce_amount_limits(request, agent, grant)
+        # Enforce agent-level payout ceiling (per-payout cap, not cumulative).
+        if agent.max_payout_amount is not None and request.amount > agent.max_payout_amount:
+            raise InsufficientPermissionsException(
+                message="Requested amount exceeds the agent payout ceiling.",
+                code="AGENT_AMOUNT_LIMIT_EXCEEDED",
+                details={
+                    "requested_amount": request.amount,
+                    "authorized_limit": agent.max_payout_amount,
+                },
+            )
+
+        # Reserve cumulative spending capacity atomically before any provider call.
+        # This prevents concurrent payouts from exceeding the grant limit:
+        # a $100 grant can only fund one $60 payout, not two.
+        reserved_grant = repo.reserve_spending_capacity(grant.grant_id, request.amount)
+        if reserved_grant is None:
+            raise InsufficientPermissionsException(
+                message="Requested amount exceeds remaining grant authorization.",
+                code="AGENT_AMOUNT_LIMIT_EXCEEDED",
+                details={
+                    "requested_amount": request.amount,
+                    "authorized_limit": grant.max_amount,
+                    "total_consumed_amount": grant.total_consumed_amount,
+                    "reserved_amount": grant.reserved_amount,
+                },
+            )
 
         self._assert_idempotency_context(db, request, principal, agent)
 
@@ -217,6 +244,7 @@ class AgenticCommerceAdapter:
             session_id=grant.session_id,
             scopes=list(grant.scopes or []),
             max_amount=grant.max_amount,
+            reserved_amount=request.amount,
             issued_at=grant.issued_at,
             expires_at=grant.expires_at,
         )
@@ -298,28 +326,6 @@ class AgenticCommerceAdapter:
         return expires_at <= datetime.now(timezone.utc)
 
     @staticmethod
-    def _enforce_amount_limits(
-        request: AgenticCommerceRequest,
-        agent: AgentRegistration,
-        grant: AgentAuthorizationGrant,
-    ) -> None:
-        limits = [
-            limit for limit in (grant.max_amount, agent.max_payout_amount) if limit is not None
-        ]
-        if not limits:
-            return
-        effective_limit = min(limits)
-        if request.amount > effective_limit:
-            raise InsufficientPermissionsException(
-                message="Requested amount exceeds the agent authorization limit.",
-                code="AGENT_AMOUNT_LIMIT_EXCEEDED",
-                details={
-                    "requested_amount": request.amount,
-                    "authorized_limit": effective_limit,
-                },
-            )
-
-    @staticmethod
     def _assert_idempotency_context(
         db: Session,
         request: AgenticCommerceRequest,
@@ -396,11 +402,41 @@ class AgenticCommerceService:
             request=request, principal=principal, decision=decision
         )
 
+        repo = AgentRepository(db)
+        grant_id = decision.authorization.grant_id
+        reserved_amount = decision.authorization.reserved_amount
+        reservation_released = False
+
+        # Commit the reservation durably before any external provider call.
+        # If local persistence fails, the transaction rolls back and PayPal is never invoked.
+        db.commit()
+
         try:
             payout_response = self.gateway_service.execute_payout(
                 db=db, request=payout_request, principal=principal
             )
+        except ProviderTimeoutException:
+            # Ambiguous timeout: keep the reservation until reconciliation.
+            # Do NOT release: the provider may have already executed.
+            # The reservation is already committed from above; no release needed.
+            self._record_audit(
+                db=db,
+                request=request,
+                principal=principal,
+                decision=decision,
+                status="failed",
+                outcome="ProviderTimeoutException",
+                payout_response=None,
+            )
+            db.commit()
+            raise
         except Exception as exc:
+            # Definitive failure: release the spending reservation.
+            if not reservation_released:
+                repo.release_reservation(grant_id, reserved_amount)
+                reservation_released = True
+                db.commit()
+
             self._record_audit(
                 db=db,
                 request=request,
@@ -410,7 +446,19 @@ class AgenticCommerceService:
                 outcome=type(exc).__name__,
                 payout_response=None,
             )
+            db.commit()
             raise
+
+        # Consume the reservation on successful payout (provider confirmed).
+        if payout_response.status in ("completed", "reconciled_completed", "decoy_completed"):
+            repo.consume_reservation(grant_id, reserved_amount)
+            db.commit()
+        # For blocked/rejected/failed outcomes, release the reservation.
+        elif payout_response.status in ("rejected", "blocked", "failed", "provider_denied"):
+            if not reservation_released:
+                repo.release_reservation(grant_id, reserved_amount)
+                reservation_released = True
+                db.commit()
 
         self._record_audit(
             db=db,
@@ -423,6 +471,7 @@ class AgenticCommerceService:
             ),
             payout_response=payout_response,
         )
+        db.commit()
 
         return AgenticCommerceResponse(
             **payout_response.model_dump(),

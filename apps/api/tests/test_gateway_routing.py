@@ -127,6 +127,7 @@ class RecordingProviderAdapter:
         self.invocations.append((request, merchant_id))
         if self.error is not None:
             raise self.error
+        batch_status = "SUCCESS" if self.success else "FAILED"
         return ProviderPayoutResult(
             success=self.success,
             provider_name=self.provider_name,
@@ -138,8 +139,10 @@ class RecordingProviderAdapter:
                 "amount": request.amount,
                 "currency": request.currency,
                 "merchant_id": str(merchant_id),
+                "batch_status": batch_status,
             },
             executed_at=datetime.now(timezone.utc),
+            batch_status=batch_status,
         )
 
     def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes) -> bool:
@@ -172,8 +175,10 @@ class RecordingDecoyAdapter:
                 "amount": request.amount,
                 "currency": request.currency,
                 "merchant_id": str(merchant_id),
+                "batch_status": "SUCCESS",
             },
             executed_at=datetime.now(timezone.utc),
+            batch_status="SUCCESS",
         )
 
 
@@ -201,7 +206,7 @@ class PayPalTransportStub:
                 json={
                     "batch_header": {
                         "payout_batch_id": "STUB-PAYOUT-BATCH-1",
-                        "batch_status": "PENDING",
+                        "batch_status": "SUCCESS",
                     }
                 },
             )
@@ -306,11 +311,15 @@ def request_fingerprint(
     recipient_email: str = "contractor@supplier.com",
     amount: float = 100.0,
     currency: str = "USD",
+    reference_note: str = "Invoice #4021",
+    session_id: uuid.UUID = NORMAL_SESSION_ID,
 ) -> str:
     """The idempotency fingerprint the gateway stores for a payout request."""
     import hashlib
 
-    return hashlib.sha256(f"{recipient_email}:{amount}:{currency}".encode()).hexdigest()
+    return hashlib.sha256(
+        f"{recipient_email}:{amount}:{currency}:{reference_note or ''}:{session_id}".encode()
+    ).hexdigest()
 
 
 def payouts_for_key(db_session: Session, idempotency_key: str) -> list[PayoutRequestRecord]:
@@ -1108,7 +1117,11 @@ def test_provider_failure_is_propagated_and_persists_no_completed_payout(db_sess
 
     assert excinfo.value.code == "PAYPAL_PAYOUT_REJECTED"
     assert len(provider.invocations) == 1
-    assert payouts_for_key(db_session, key) == []
+    # With pre-commit-before-PayPal, a payout record exists but is NOT completed.
+    # The record reflects the provider's definitive failure (denied/failed).
+    payouts = payouts_for_key(db_session, key)
+    assert len(payouts) == 1, f"Expected 1 payout record, got {len(payouts)}"
+    assert payouts[0].status != "completed", f"Failed payout must not be completed: {payouts[0].status}"
 
 
 def test_definitive_provider_failure_allows_a_safe_retry(db_session: Session):
@@ -1198,14 +1211,17 @@ def test_provider_reporting_an_unsuccessful_execution_is_not_recorded_as_complet
         )
 
     assert excinfo.value.code == "PROVIDER_EXECUTION_UNSUCCESSFUL"
-    assert payouts_for_key(db_session, key) == []
+    # With pre-commit-before-PayPal, a payout record exists but is NOT completed.
+    payouts = payouts_for_key(db_session, key)
+    assert len(payouts) == 1, f"Expected 1 payout record, got {len(payouts)}"
+    assert payouts[0].status != "completed", f"Unsuccessful payout must not be completed: {payouts[0].status}"
 
     record = idempotency_record(db_session, key)
     assert record.status == "failed"
 
 
 def test_provider_failure_does_not_leave_a_duplicate_payout_record(db_session: Session):
-    """A failed attempt is not persisted as a payout at all."""
+    """A failed attempt leaves exactly one non-completed payout record."""
     provider = RecordingProviderAdapter()
     provider.error = PaymentProviderException(
         message="Network communication failure with PayPal Sandbox.",
@@ -1221,4 +1237,7 @@ def test_provider_failure_does_not_leave_a_duplicate_payout_record(db_session: S
             principal=make_principal(),
         )
 
-    assert len(payouts_for_key(db_session, key)) == 0
+    # With pre-commit-before-PayPal, exactly one payout record exists but is NOT completed.
+    payouts = payouts_for_key(db_session, key)
+    assert len(payouts) == 1, f"Expected exactly 1 payout record, got {len(payouts)}"
+    assert payouts[0].status != "completed", f"Failed payout must not be completed: {payouts[0].status}"

@@ -519,7 +519,8 @@ def test_payout_transaction_id_comes_from_the_paypal_batch_header(adapter, paypa
     result = adapter.execute_payout(make_payout_request(), MERCHANT_ID)
 
     assert result.provider_transaction_id == "8XY12345ABC"
-    assert result.success is True
+    assert result.success is False  # PENDING is not terminal success
+    assert result.batch_status == "PENDING"
     assert result.provider_name == "paypal_sandbox"
     assert result.environment == "paypal_sandbox"
     assert result.executed_at.tzinfo is not None
@@ -609,7 +610,7 @@ def test_payout_rejection_maps_to_payment_provider_exception(adapter, paypal):
     assert "INVALID_REQUEST" in excinfo.value.message
     assert "Recipient email is invalid." in excinfo.value.message
     assert excinfo.value.details["paypal_error_name"] == "INVALID_REQUEST"
-    assert excinfo.value.details["details"] == [{"issue": "INVALID_EMAIL"}]
+    assert excinfo.value.details["paypal_details"] == [{"issue": "INVALID_EMAIL"}]
 
 
 def test_payout_unprocessable_entity_maps_to_payment_provider_exception(adapter, paypal):
@@ -636,8 +637,13 @@ def test_payout_rejection_with_a_non_json_body_is_still_mapped(adapter, paypal):
     assert excinfo.value.details["paypal_error_name"] == "UNPROCESSABLE_ENTITY"
 
 
-@pytest.mark.parametrize("status_code", [500, 502, 503, 404])
-def test_payout_unexpected_status_maps_to_payment_provider_exception(adapter, paypal, status_code):
+@pytest.mark.parametrize("status_code,expected_code", [
+    (500, "PAYPAL_TEMPORARY_OUTAGE"),
+    (502, "PAYPAL_TEMPORARY_OUTAGE"),
+    (503, "PAYPAL_TEMPORARY_OUTAGE"),
+    (404, "PAYPAL_UNEXPECTED_RESPONSE"),
+])
+def test_payout_unexpected_status_maps_to_payment_provider_exception(adapter, paypal, status_code, expected_code):
     """Unexpected provider statuses are surfaced with the original status code."""
     paypal.queue_token()
     paypal.queue_response(status_code, {"name": "INTERNAL_SERVER_ERROR"})
@@ -645,7 +651,7 @@ def test_payout_unexpected_status_maps_to_payment_provider_exception(adapter, pa
     with pytest.raises(PaymentProviderException) as excinfo:
         adapter.execute_payout(make_payout_request(), MERCHANT_ID)
 
-    assert excinfo.value.code == "PAYPAL_UNEXPECTED_RESPONSE"
+    assert excinfo.value.code == expected_code
     assert excinfo.value.details["status_code"] == status_code
 
 

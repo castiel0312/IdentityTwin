@@ -1,6 +1,7 @@
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -43,6 +44,33 @@ class TrustGatewayService:
     No route handler may invoke payment provider adapters directly.
     """
 
+    # Valid payout state transitions
+    PAYOUT_STATUS_TRANSITIONS = {
+        "pending": {"processing", "completed", "failed", "denied", "blocked", "reconciled_completed"},
+        "processing": {"completed", "failed", "denied", "returned", "blocked", "reconciled_completed"},
+        "completed": {"reconciled_completed"},
+        "failed": set(),
+        "denied": set(),
+        "returned": set(),
+        "blocked": set(),
+        "reconciled_completed": set(),
+        "provider_denied": set(),
+        "rejected": set(),
+        "decoy_completed": set(),
+        "unknown": {"pending", "processing", "completed", "failed", "denied", "returned", "blocked"},
+    }
+
+    # Mapping from PayPal batch status to internal payout status
+    BATCH_STATUS_MAP = {
+        "PENDING": "pending",
+        "PROCESSING": "processing",
+        "SUCCESS": "completed",
+        "DENIED": "denied",
+        "FAILED": "failed",
+        "RETURNED": "returned",
+        "BLOCKED": "blocked",
+    }
+
     def __init__(
         self,
         policy: TrustGatewayPolicy,
@@ -54,6 +82,29 @@ class TrustGatewayService:
         self.risk_engine = risk_engine
         self.provider_adapter = provider_adapter
         self.decoy_adapter = decoy_adapter
+
+    def _map_batch_status_to_payout_status(self, batch_status: str | None) -> str:
+        """
+        Map PayPal batch status to internal payout status.
+
+        Never assumes HTTP 200 means payout completion.
+        Only marks completed when provider confirms successful completion (SUCCESS).
+        """
+        if batch_status is None:
+            return "unknown"
+        return self.BATCH_STATUS_MAP.get(batch_status.upper(), "unknown")
+
+    def _validate_status_transition(self, current_status: str, new_status: str) -> None:
+        """
+        Validate that a payout status transition is allowed.
+
+        Rejects invalid state transitions to prevent stale event overwrites.
+        """
+        allowed = self.PAYOUT_STATUS_TRANSITIONS.get(current_status, set())
+        if new_status not in allowed and current_status != new_status:
+            raise ValueError(
+                f"Invalid payout status transition: {current_status} -> {new_status}"
+            )
 
     def execute_payout(
         self,
@@ -86,8 +137,13 @@ class TrustGatewayService:
             )
 
         # 3 & 4. Idempotency and duplicate check
+        # The canonical hash includes all fields that affect the payout outcome:
+        # recipient, amount, currency, reference note, and session. Two requests
+        # with the same key but different reference notes or sessions must not
+        # collide.
         req_hash = hashlib.sha256(
-            f"{request.recipient_email}:{request.amount}:{request.currency}".encode()
+            f"{request.recipient_email}:{request.amount}:{request.currency}:"
+            f"{request.reference_note or ''}:{request.session_id}".encode()
         ).hexdigest()
 
         cached_rec = idempotency_repo.get_record(principal.merchant_id, request.idempotency_key)
@@ -216,13 +272,40 @@ class TrustGatewayService:
             payout_id = uuid.uuid4()
             provider_reference = None
             provider_payload = {}
-            payout_status = "rejected"
+            payout_status = "pending"
             executed_at = None
 
             provider_invoked = False
             provider_result = None
             provider_reported_failure = False
             provider_name = PROVIDER_NAME_NONE
+
+            # Pre-commit payout record with pending status before any provider call.
+            # This ensures the reservation and payout intent are durable before
+            # PayPal is contacted. If the process crashes after this commit but
+            # before PayPal responds, the payout record exists for reconciliation.
+            pre_payout_record = PayoutRequestRecord(
+                payout_id=payout_id,
+                decision_id=routing_decision.decision_id,
+                session_id=session.session_id,
+                merchant_id=principal.merchant_id,
+                user_id=principal.user_id,
+                recipient_email=request.recipient_email,
+                amount=request.amount,
+                currency=request.currency,
+                reference_note=request.reference_note,
+                idempotency_key=request.idempotency_key,
+                status="pending",
+                provider_name=PROVIDER_NAME_NONE,
+                provider_reference=None,
+                provider_batch_id=None,
+                sender_batch_id=None,
+                sender_item_id=None,
+                provider_payload={"pre_provider": True},
+                executed_at=None,
+            )
+            payout_repo.create(pre_payout_record)
+            db.commit()
 
             if routing_decision.action == GatewayAction.ALLOW:
                 # Consume single-use step-up challenge if used
@@ -234,25 +317,71 @@ class TrustGatewayService:
                 provider_result = self.provider_adapter.execute_payout(
                     request, principal.merchant_id
                 )
-                if not provider_result.success:
-                    # The provider reported a definitive, unsuccessful
-                    # execution: no funds were moved, so the idempotency key
-                    # stays safe to retry. A payout must never be persisted as
-                    # "completed" when the adapter reported a failure.
-                    provider_reported_failure = True
-                    raise PaymentProviderException(
-                        message="Payment provider reported an unsuccessful payout execution.",
-                        code="PROVIDER_EXECUTION_UNSUCCESSFUL",
-                        details={
-                            "provider_transaction_id": provider_result.provider_transaction_id,
-                            "provider_name": provider_result.provider_name,
-                        },
-                    )
-                provider_reference = provider_result.provider_transaction_id
                 provider_name = resolve_provider_name(provider_result)
                 provider_payload = build_provider_payload(provider_result)
-                payout_status = "completed"
-                executed_at = provider_result.executed_at
+
+                # Provider reference integrity: never fabricate a provider reference.
+                # provider_batch_id is only set when PayPal actually returns one
+                # and is stored in a separate column. provider_reference holds
+                # the best available reference (confirmed batch_id or synthetic
+                # transaction_id for non-PayPal providers).
+                provider_batch_id = provider_result.provider_batch_id
+                sender_batch_id = provider_result.sender_batch_id
+                sender_item_id = provider_result.sender_item_id
+                if provider_batch_id is not None:
+                    provider_reference = provider_batch_id  # PayPal-confirmed reference
+                else:
+                    provider_reference = provider_result.provider_transaction_id  # Synthetic fallback
+
+                if not provider_result.success:
+                    # Determine if the outcome is ambiguous (may have executed)
+                    # or definitive (provider explicitly rejected).
+                    batch_status = provider_result.batch_status or "PENDING"
+                    is_ambiguous = batch_status in ("PENDING", "PROCESSING") or (
+                        provider_result.provider_name == "paypal_sandbox"
+                        and provider_batch_id is None
+                    )
+
+                    if is_ambiguous:
+                        # Provider accepted but outcome is ambiguous: record as
+                        # pending/unknown and mark idempotency for reconciliation.
+                        # Do NOT mark as completed, do NOT allow retry.
+                        payout_status = "pending"
+                        provider_reported_failure = False  # Not a definitive failure
+                        executed_at = provider_result.executed_at
+                    else:
+                        # Definitive provider failure (DENIED, FAILED, etc.):
+                        # no funds moved, safe to retry.
+                        provider_reported_failure = True
+                        payout_status = self._map_batch_status_to_payout_status(batch_status)
+                        executed_at = provider_result.executed_at
+                        
+                        # Persist the failure status to the pre-committed record
+                        # before raising, so the outcome is durable for reconciliation.
+                        pre_payout_record.status = payout_status
+                        pre_payout_record.provider_name = provider_name
+                        pre_payout_record.provider_reference = provider_reference
+                        pre_payout_record.provider_batch_id = provider_result.provider_batch_id
+                        pre_payout_record.sender_batch_id = provider_result.sender_batch_id
+                        pre_payout_record.sender_item_id = provider_result.sender_item_id
+                        pre_payout_record.provider_payload = provider_payload
+                        pre_payout_record.executed_at = executed_at
+                        db.add(pre_payout_record)
+                        db.commit()
+                        
+                        raise PaymentProviderException(
+                            message="Payment provider reported an unsuccessful payout execution.",
+                            code="PROVIDER_EXECUTION_UNSUCCESSFUL",
+                            details={
+                                "provider_transaction_id": provider_reference,
+                                "provider_name": provider_result.provider_name,
+                                "batch_status": provider_result.batch_status,
+                            },
+                        )
+                else:
+                    # Terminal success: provider confirms completion.
+                    payout_status = self._map_batch_status_to_payout_status(provider_result.batch_status)
+                    executed_at = provider_result.executed_at
             elif routing_decision.action == GatewayAction.DECOY_FORWARD:
                 # Routed to isolated synthetic honey environment
                 decoy_result = self.decoy_adapter.execute_decoy(
@@ -291,25 +420,22 @@ class TrustGatewayService:
                     },
                 )
 
-            # 8. Persist payout request and outcome record
-            payout_record = PayoutRequestRecord(
-                payout_id=payout_id,
-                decision_id=routing_decision.decision_id,
-                session_id=session.session_id,
-                merchant_id=principal.merchant_id,
-                user_id=principal.user_id,
-                recipient_email=request.recipient_email,
-                amount=request.amount,
-                currency=request.currency,
-                reference_note=request.reference_note,
-                idempotency_key=request.idempotency_key,
-                status=payout_status,
-                provider_name=provider_name,
-                provider_reference=provider_reference,
-                provider_payload=provider_payload,
-                executed_at=executed_at,
+            # 8. Update payout record with final outcome
+            pre_payout_record.status = payout_status
+            pre_payout_record.provider_name = provider_name
+            pre_payout_record.provider_reference = provider_reference
+            pre_payout_record.provider_batch_id = (
+                provider_result.provider_batch_id if provider_result else None
             )
-            payout_repo.create(payout_record)
+            pre_payout_record.sender_batch_id = (
+                provider_result.sender_batch_id if provider_result else None
+            )
+            pre_payout_record.sender_item_id = (
+                provider_result.sender_item_id if provider_result else None
+            )
+            pre_payout_record.provider_payload = provider_payload
+            pre_payout_record.executed_at = executed_at
+            db.add(pre_payout_record)
 
             # Update session activity and trust state
             session_repo.update_trust_state(
@@ -333,7 +459,7 @@ class TrustGatewayService:
                 amount=request.amount,
                 currency=request.currency,
                 recipient_email=request.recipient_email,
-                created_at=payout_record.created_at,
+                created_at=pre_payout_record.created_at,
                 is_duplicate=False,
             )
 
@@ -408,6 +534,74 @@ class TrustGatewayService:
                 except Exception:
                     pass
             raise
+
+    def reconcile_payout(
+        self,
+        db: Session,
+        payout_id: UUID,
+        merchant_id: UUID,
+    ) -> PayoutRequestRecord | None:
+        """
+        Reconcile a payout's status with the payment provider.
+
+        Retrieves the current batch status from PayPal and updates the internal
+        payout record if the status has changed. Never regresses a terminal
+        successful state (completed) based on a stale provider response.
+
+        Scoped to the correct merchant: only the merchant that owns the payout
+        can reconcile it. Returns None if the payout is not found or does not
+        belong to the merchant.
+        """
+        payout_repo = PayoutRepository(db)
+        payout = payout_repo.get_by_id(payout_id)
+        if payout is None:
+            return None
+        if payout.merchant_id != merchant_id:
+            return None
+
+        # Only payouts with a genuine provider batch ID can be reconciled.
+        if not payout.provider_batch_id:
+            return None
+
+        # Never regress a terminal successful state.
+        if payout.status in ("completed", "reconciled_completed"):
+            return payout
+
+        try:
+            provider_result = self.provider_adapter.get_payout_batch(payout.provider_batch_id)
+        except (ProviderTimeoutException, PaymentProviderException):
+            # Provider unreachable: leave the payout in its current state for
+            # later reconciliation. Do not change status on ambiguous failure.
+            return payout
+
+        if provider_result is None:
+            # Batch not found at provider: leave as-is for later reconciliation.
+            return payout
+
+        new_status = self._map_batch_status_to_payout_status(provider_result.batch_status)
+
+        # Validate the state transition.
+        try:
+            self._validate_status_transition(payout.status, new_status)
+        except ValueError:
+            # Invalid transition: preserve current state.
+            return payout
+
+        payout.status = new_status
+        if new_status == "completed":
+            payout.executed_at = provider_result.executed_at
+        payout.provider_payload = {
+            **payout.provider_payload,
+            "reconciliation": {
+                "provider_batch_id": payout.provider_batch_id,
+                "batch_status": provider_result.batch_status,
+                "reconciled_at": provider_result.executed_at.isoformat(),
+            },
+        }
+        db.add(payout)
+        db.commit()
+        db.refresh(payout)
+        return payout
 
 
 def create_gateway_service(

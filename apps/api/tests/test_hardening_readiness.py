@@ -311,7 +311,7 @@ def test_paypal_sandbox_adapter_successful_execution():
     mock_payout_response.json.return_value = {
         "batch_header": {
             "payout_batch_id": "SANDBOX-BATCH-998877",
-            "batch_status": "PENDING",
+            "batch_status": "SUCCESS",
             "time_created": "2026-10-21T15:00:00Z",
         }
     }
@@ -332,7 +332,7 @@ def test_paypal_sandbox_adapter_successful_execution():
     assert result.environment == "paypal_sandbox"
     assert result.provider_name == "paypal_sandbox"
     assert result.provider_transaction_id == "SANDBOX-BATCH-998877"
-    assert result.details["batch_status"] == "PENDING"
+    assert result.details["batch_status"] == "SUCCESS"
 
     # Verify PayPal-Request-Id was passed
     payout_call_headers = mock_post.call_args_list[1].kwargs["headers"]
