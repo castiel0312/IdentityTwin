@@ -202,9 +202,9 @@ for production token login, test commands and security limitations.
 
 ## 5. Automated Tests & Quality Checks
 
-Run the backend suite (469 tests covering security boundaries, step-up
-verification, provider isolation, agentic commerce authorization, read-model
-contracts, and AST bypass checks):
+Run the complete backend suite, including PostgreSQL reconciliation tests,
+security boundaries, step-up verification, provider isolation, agentic
+commerce authorization, read-model contracts, and AST bypass checks:
 
 ```bash
 make test
@@ -220,6 +220,10 @@ npm test
 npm run build
 npm run test:e2e
 ```
+
+For a complete local Docker deployment with the built console, API, gateway and
+PostgreSQL, follow [`docs/deployment.md`](docs/deployment.md). It is a
+development/demo stack, not a production deployment.
 
 `npm run test:e2e` starts an isolated API on port `8010`, Vite on port `5174`,
 and a disposable SQLite database at `apps/api/identitytwin_e2e.db`. It does not

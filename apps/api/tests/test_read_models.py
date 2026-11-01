@@ -8,6 +8,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -21,12 +22,16 @@ from app.models.agent import (
 )
 from app.models.event import SecurityEvent
 from app.models.idempotency import IdempotencyRecord
+from app.models.incident import IncidentRecord
 from app.models.payout import PayoutRequestRecord
+from app.models.principal import User
 from app.models.risk import RiskDecisionRecord
+from app.models.session import SessionRecord
 from app.models.twin import BehavioralTwin, SessionRiskStateRecord
 from app.schemas.sessions import TrustLevel
 from tests.conftest import (
     DECOY_SESSION_ID,
+    OTHER_MERCHANT_ID,
     RESTRICTED_SESSION_ID,
     TEST_INCIDENT_ID,
     TEST_MERCHANT_ID,
@@ -453,6 +458,98 @@ def test_evidence_seals_and_seal_range_verification(
         f"/v1/evidence/seals/{seal_id}", headers=other_merchant_auth_headers
     )
     assert hidden.status_code == 404
+
+
+def test_evidence_seal_hides_interleaved_foreign_merchant_entries(
+    client: TestClient,
+    merchant_auth_headers: dict,
+    other_merchant_auth_headers: dict,
+    db_session: Session,
+):
+    foreign_user_id = uuid.uuid4()
+    foreign_session_id = uuid.uuid4()
+    foreign_incident_id = uuid.uuid4()
+    db_session.add(
+        User(
+            user_id=foreign_user_id,
+            merchant_id=OTHER_MERCHANT_ID,
+            email=f"{foreign_user_id}@other.test",
+            role="merchant",
+        )
+    )
+    db_session.add(
+        SessionRecord(
+            session_id=foreign_session_id,
+            user_id=foreign_user_id,
+            merchant_id=OTHER_MERCHANT_ID,
+            status="active",
+        )
+    )
+    db_session.add(
+        IncidentRecord(
+            incident_id=foreign_incident_id,
+            merchant_id=OTHER_MERCHANT_ID,
+            session_id=foreign_session_id,
+            title="Foreign tenant incident",
+            description="Foreign tenant evidence test",
+            trigger_reason="TEST",
+        )
+    )
+    db_session.commit()
+
+    chain = EvidenceChain(db_session)
+    chain.append(
+        "merchant_one_event",
+        {
+            "type": "merchant_one_event",
+            "session_id": str(RESTRICTED_SESSION_ID),
+            "merchant_id": str(TEST_MERCHANT_ID),
+        },
+    )
+    chain.append(
+        "merchant_two_event",
+        {
+            "type": "merchant_two_event",
+            "session_id": str(foreign_session_id),
+            "merchant_id": str(OTHER_MERCHANT_ID),
+            "recipient": "private-recipient@other.test",
+        },
+    )
+    chain.append(
+        "merchant_one_followup",
+        {
+            "type": "merchant_one_followup",
+            "session_id": str(RESTRICTED_SESSION_ID),
+            "merchant_id": str(TEST_MERCHANT_ID),
+        },
+    )
+    with pytest.raises(ValueError, match="incident, session and merchant"):
+        chain.seal(TEST_INCIDENT_ID, RESTRICTED_SESSION_ID, OTHER_MERCHANT_ID)
+    first_seal = chain.seal(TEST_INCIDENT_ID, RESTRICTED_SESSION_ID, TEST_MERCHANT_ID)
+    second_seal = chain.seal(foreign_incident_id, foreign_session_id, OTHER_MERCHANT_ID)
+
+    first_detail = client.get(
+        f"/v1/evidence/seals/{first_seal['seal_id']}",
+        headers=merchant_auth_headers,
+    )
+    assert first_detail.status_code == 200
+    assert first_detail.json()["seal_verification"]["valid"] is True
+    first_payloads = [entry["payload"] for entry in first_detail.json()["entries"]]
+    assert all(payload.get("merchant_id") != str(OTHER_MERCHANT_ID) for payload in first_payloads)
+    assert all(
+        payload.get("recipient") != "private-recipient@other.test" for payload in first_payloads
+    )
+
+    reverse_cross_access = client.get(
+        f"/v1/evidence/seals/{second_seal['seal_id']}",
+        headers=merchant_auth_headers,
+    )
+    assert reverse_cross_access.status_code == 404
+    foreign_detail = client.get(
+        f"/v1/evidence/seals/{first_seal['seal_id']}",
+        headers=other_merchant_auth_headers,
+    )
+    assert foreign_detail.status_code == 404
 
 
 def test_honey_operator_projection_excludes_canary_secrets(

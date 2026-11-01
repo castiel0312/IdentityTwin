@@ -22,7 +22,15 @@ The Trust Gateway acts as the authoritative control checkpoint for all sensitive
 - **Anti-Tampering Guard**: Clients cannot supply `trust_level`, `risk_score`, or `routing_destination` in request bodies. Pydantic schemas enforce `extra="forbid"`, and policy evaluation calculates trust independently.
 - **Dev Auth Hardening**: `X-Dev-*` headers cannot bypass token requirements; unauthenticated requests without recognized bearer tokens are rejected with HTTP 401.
 
-### C. Agentic Commerce (`POST /v1/agentic/payouts`)
+### C. Honey Workspace and Evidence
+- **Honey Authentication and Ownership**: Honey and provider-shaped simulation routes require an authenticated principal and an active session owned by that principal's user and merchant IDs. Request-supplied identity values never override the authenticated identity.
+- **Canary Scope**: Canary issuance and validation are bound to the owning session, user, and merchant. A canary observed in another session is not consumed and cannot create an incident or isolate that session. A valid canary hit isolates only its authenticated owning session and blocks the request.
+- **Evidence Tenant Isolation**: Sealing validates that the incident, session, and merchant IDs agree. Seal-detail responses return only entries for the sealed session; integrity verification still checks the complete global hash-chain interval internally.
+- **Gateway Block Evidence**: A gateway-driven isolation creates a linked `gateway_blocked` event and `session_isolated` event, then seals them to the resulting incident.
+- **Canary Key Configuration**: Production startup requires an explicitly configured `CANARY_HMAC_SECRET` with at least 32 characters and sufficient character entropy. Production never falls back to a source-controlled development key.
+- **Honey Payout Idempotency**: Repeated idempotency keys return a cached result only when the session, identity, amount, currency, and recipient match the original request; conflicting reuse returns HTTP 409.
+
+### D. Agentic Commerce (`POST /v1/agentic/payouts`)
 - **No Agent Bypass Surface**: AI agent traffic is normalized by the internal adapter (`gateway/agentic.py`) into the canonical `PayoutRequest` and executed by `TrustGatewayService`. The agentic path imports no provider adapter and can never reach PayPal directly.
 - **Delegation, Not Identity**: A grant (`agent_authorization_grants`) authorizes an agent to act for one merchant user; it is not an authentication credential. The caller must still present a valid merchant session.
 - **Server-Owned Agent Identity**: The agent's name, type, scopes and amount ceiling are resolved from the registry. The request body may only reference an opaque `agent_id`; unknown fields (trust level, risk score, merchant id) are rejected.
@@ -31,7 +39,7 @@ The Trust Gateway acts as the authoritative control checkpoint for all sensitive
 - **Risk Parity**: Agent traffic is scored by the same risk engine as human traffic, so the routing matrix (`RESTRICTED` / `DECOY` / `ISOLATED`) applies unchanged.
 - **Attribution**: Every authorized agent attempt is written to `agentic_commerce_audit`, linking agent -> grant -> payout for the evidence pipeline.
 
-### D. Incident & Investigation Integrity
+### E. Incident & Investigation Integrity
 - **Role-Based Access Control (RBAC)**: Only principals with the `analyst` or `admin` role may approve or resolve security incidents. Merchants cannot self-approve incidents.
 - **Cross-Merchant Isolation**: Analysts are strictly scoped to their assigned merchant domain. Cross-merchant approval attempts are blocked.
 - **Non-Execution Invariant**: Incident approval only updates the review state and audit log; it does NOT automatically disengage isolation or execute payouts.
@@ -57,7 +65,7 @@ To enable frictionless local development and cross-role automated testing withou
 - Development tokens (`dev-merchant-token`, `dev-analyst-token`) or `X-Dev-*` headers simulate authenticated principals.
 
 ### Production Security Guards
-- **Strict Startup Guard**: `apps/api/app/core/config.py` enforces that if `ENVIRONMENT=production`, `ALLOW_DEV_AUTH` must be `false` and SQLite connection strings are rejected.
+- **Strict Startup Guard**: `apps/api/app/core/config.py` enforces that if `ENVIRONMENT=production`, `ALLOW_DEV_AUTH` must be `false`, SQLite connection strings are rejected, and a high-entropy `CANARY_HMAC_SECRET` is required.
 - **Production OIDC Hook**: In production, `get_current_principal` verifies JWT bearer tokens signed by an enterprise OIDC/OAuth2 identity provider (e.g., Auth0, Okta, AWS Cognito, Google Cloud Identity) using cryptographic JWKS validation.
 
 ```mermaid

@@ -1,22 +1,29 @@
 import json
 import uuid
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import OwnershipMismatchException
+from app.core.security import AuthenticatedPrincipal, get_current_principal
 from app.db.session import get_db, get_honey_db
 from app.honey.bootstrap import append_activity, get_or_create_world, save_world
 from app.honey.canary import CanaryRegistryService
 from app.honey.containment import contain_canary_hit
 from app.honey.evidence import append_honey_evidence
-from app.honey.payouts import create_synthetic_payout
+from app.honey.payouts import IdempotencyConflictError, create_synthetic_payout
+from app.models.session import SessionRecord
+from app.schemas.sessions import SessionStatus
 
 
 async def check_canary_request(
     request: Request,
     db: Session = Depends(get_db),
     honey_db: Session = Depends(get_honey_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> None:
     body_bytes = await request.body()
     try:
@@ -27,27 +34,66 @@ async def check_canary_request(
     session_id = request.query_params.get("session_id")
     if isinstance(body, dict):
         session_id = body.get("session_id") or session_id
+    identity_id = request.query_params.get("identity_id")
+    if isinstance(body, dict):
+        identity_id = body.get("identity_id") or identity_id
+
+    session_uuid = None
+    if session_id is not None:
+        try:
+            session_uuid = UUID(str(session_id))
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=422, detail="session_id must be a valid UUID."
+            ) from None
+        owned_session = db.scalars(
+            select(SessionRecord).where(
+                SessionRecord.session_id == session_uuid,
+                SessionRecord.merchant_id == principal.merchant_id,
+                SessionRecord.user_id == principal.user_id,
+            )
+        ).first()
+        if owned_session is None:
+            raise OwnershipMismatchException(
+                message="Session does not belong to the authenticated principal."
+            )
+        if owned_session.status != SessionStatus.ACTIVE.value:
+            raise HTTPException(status_code=403, detail="Session is not active.")
+        if identity_id is not None:
+            try:
+                requested_identity = UUID(str(identity_id))
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=422, detail="identity_id must be a valid UUID."
+                ) from None
+            if requested_identity != principal.user_id:
+                raise OwnershipMismatchException(
+                    message="Identity does not belong to the authenticated principal."
+                )
+        session_id = str(session_uuid)
+
     observation = {
         "headers": dict(request.headers),
         "path": request.url.path,
         "query": request.url.query,
         "body": body,
         "session_id": session_id,
+        "identity_id": str(principal.user_id),
+        "merchant_id": str(principal.merchant_id),
         "matched_in": request.url.path,
     }
     hit = CanaryRegistryService(db).check(observation)
     if hit:
-        hit["incident_id"] = contain_canary_hit(db, hit)
-    identity_id = request.query_params.get("identity_id")
-    if isinstance(body, dict):
-        identity_id = body.get("identity_id") or identity_id
+        hit["incident_id"] = contain_canary_hit(db, hit, principal)
+        raise HTTPException(status_code=403, detail="This request was blocked.")
+
     if isinstance(session_id, str) and isinstance(identity_id, str):
         try:
-            get_or_create_world(honey_db, session_id, identity_id)
+            get_or_create_world(honey_db, session_id, str(principal.user_id))
             append_activity(
                 honey_db,
                 session_id,
-                identity_id,
+                str(principal.user_id),
                 request.method,
                 request.url.path,
                 datetime.now(timezone.utc).isoformat(),
@@ -147,10 +193,11 @@ def export_invoices(
     format: str = "csv",
     db: Session = Depends(get_db),
     honey_db: Session = Depends(get_honey_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ):
     world = get_or_create_world(honey_db, session_id, identity_id)
     reg = CanaryRegistryService(db)
-    issued = reg.issue(session_id, identity_id)
+    issued = reg.issue(session_id, identity_id, str(principal.merchant_id))
     canary = next((item for item in issued if item["kind"] == "invoice_export"), None)
     append_honey_evidence(
         db,
@@ -353,16 +400,19 @@ async def create_payout(
         "Idempotency-Key"
     )
     idempotency_key = idempotency_key[:128] if idempotency_key else None
-    return create_synthetic_payout(
-        db,
-        honey_db,
-        session_id=str(session_id),
-        identity_id=str(identity_id),
-        amount=amount,
-        currency=str(body.get("currency") or "INR").upper(),
-        recipient=str(recipient) if recipient is not None else None,
-        idempotency_key=idempotency_key,
-    )
+    try:
+        return create_synthetic_payout(
+            db,
+            honey_db,
+            session_id=str(session_id),
+            identity_id=str(identity_id),
+            amount=amount,
+            currency=str(body.get("currency") or "INR").upper(),
+            recipient=str(recipient) if recipient is not None else None,
+            idempotency_key=idempotency_key,
+        )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/developer/apps")
@@ -371,10 +421,11 @@ def list_apps(
     identity_id: str,
     db: Session = Depends(get_db),
     honey_db: Session = Depends(get_honey_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ):
     world = get_or_create_world(honey_db, session_id, identity_id)
     reg = CanaryRegistryService(db)
-    issued = reg.issue(session_id, identity_id)
+    issued = reg.issue(session_id, identity_id, str(principal.merchant_id))
     api_credential = next((item for item in issued if item["kind"] == "api_credential"), None)
     apps = []
     for app in world["api_credentials"]:

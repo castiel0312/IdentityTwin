@@ -1,4 +1,4 @@
-name: IdentityTwin Backend CI
+name: IdentityTwin CI
 
 on:
   push:
@@ -8,8 +8,22 @@ on:
 
 jobs:
   test-and-verify:
-    name: Lint, Test & OpenAPI Check
+    name: Backend, PostgreSQL & OpenAPI
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: identitytwin_test
+          POSTGRES_PASSWORD: identitytwin_test
+          POSTGRES_DB: identitytwin_reconciliation_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U identitytwin_test -d identitytwin_reconciliation_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout Code
@@ -39,6 +53,7 @@ jobs:
           ENVIRONMENT: test
           ALLOW_DEV_AUTH: "true"
           PAYMENT_PROVIDER: mock
+          IDENTITYTWIN_RECONCILIATION_TEST_DATABASE_URL: postgresql+psycopg://identitytwin_test:identitytwin_test@127.0.0.1:5432/identitytwin_reconciliation_test
         run: |
           cd apps/api && PYTHONPATH=. pytest -v tests/
 
@@ -46,3 +61,56 @@ jobs:
         run: |
           PYTHONPATH=apps/api python scripts/export_openapi.py
           git diff --exit-code packages/contracts/openapi.json || (echo "ERROR: packages/contracts/openapi.json is out of date. Run 'make openapi' and commit changes." && exit 1)
+
+  frontend:
+    name: Frontend, E2E & Container Builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install API Dependencies for E2E
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "apps/api[dev]"
+
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run Frontend Checks
+        working-directory: frontend
+        run: |
+          npm test
+          npm run typecheck
+          npm run lint
+          npm run build
+
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Browser E2E
+        working-directory: frontend
+        env:
+          ENVIRONMENT: development
+          ALLOW_DEV_AUTH: "true"
+          PAYMENT_PROVIDER: mock
+        run: npm run test:e2e
+
+      - name: Build API and Console Images
+        run: |
+          docker build -t identitytwin-api:ci -f apps/api/Dockerfile .
+          docker build -t identitytwin-console:ci -f frontend/Dockerfile .

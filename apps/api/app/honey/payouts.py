@@ -1,3 +1,5 @@
+import hashlib
+import json
 import uuid
 from typing import Any
 
@@ -5,6 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.honey.bootstrap import get_or_create_world, save_world
 from app.honey.evidence import append_honey_evidence
+
+
+class IdempotencyConflictError(ValueError):
+    """Raised when an idempotency key is reused for a different payout."""
 
 
 def create_synthetic_payout(
@@ -20,8 +26,29 @@ def create_synthetic_payout(
     transaction_id_prefix: str = "TXN-",
 ) -> dict[str, Any]:
     world = get_or_create_world(honey_db, session_id, identity_id)
-    if idempotency_key and idempotency_key in world["idempotency"]:
-        return world["idempotency"][idempotency_key]["response"]
+    currency = currency.upper()
+    normalized_recipient = str(recipient)[:254] if recipient is not None else None
+    request_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "amount": amount,
+                "currency": currency,
+                "identity_id": identity_id,
+                "recipient": normalized_recipient,
+                "session_id": session_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    idempotency_records = world.setdefault("idempotency", {})
+    if idempotency_key and idempotency_key in idempotency_records:
+        previous = idempotency_records[idempotency_key]
+        if previous.get("request_hash") != request_hash:
+            raise IdempotencyConflictError(
+                "Idempotency key was previously used with different payout parameters."
+            )
+        return previous["response"]
 
     payout_batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
     transaction_id = f"{transaction_id_prefix}{uuid.uuid4().hex[:12].upper()}"
@@ -35,7 +62,7 @@ def create_synthetic_payout(
         "batch_status": "SUCCESS",
         "amount": amount,
         "currency": currency,
-        "recipient": recipient,
+        "recipient": normalized_recipient,
         "transaction_id": transaction_id,
     }
     world["payouts"].append(payout)
@@ -82,7 +109,10 @@ def create_synthetic_payout(
         "balance": {"amount": balance["amount"], "currency": balance["currency"]},
     }
     if idempotency_key:
-        world["idempotency"][idempotency_key] = {"response": response}
+        idempotency_records[idempotency_key] = {
+            "request_hash": request_hash,
+            "response": response,
+        }
 
     append_honey_evidence(
         db,
@@ -93,7 +123,7 @@ def create_synthetic_payout(
             "resource": "payouts.create",
             "amount": amount,
             "currency": currency,
-            "recipient": recipient,
+            "recipient": normalized_recipient,
             "transaction_id": transaction_id,
         },
     )

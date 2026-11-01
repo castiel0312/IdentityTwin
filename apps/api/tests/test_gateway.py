@@ -3,6 +3,7 @@ import uuid
 from fastapi.testclient import TestClient
 
 from app.gateway.provider import mock_provider_instance
+from app.models.incident import IncidentRecord
 from tests.conftest import (
     DECOY_SESSION_ID,
     ISOLATED_SESSION_ID,
@@ -157,3 +158,47 @@ def test_isolated_payout_does_not_invoke_provider(client: TestClient, merchant_a
 
     # CRITICAL INVARIANT: Provider was never touched
     assert mock_provider_instance.invocation_count == 0
+
+
+def test_gateway_isolation_creates_sealed_incident_evidence(
+    client: TestClient, merchant_auth_headers: dict, db_session
+):
+    response = client.post(
+        "/v1/payouts",
+        json={
+            "session_id": str(ISOLATED_SESSION_ID),
+            "recipient_email": "evidence-test@example.com",
+            "amount": 9999,
+            "currency": "USD",
+            "idempotency_key": "gateway-evidence-" + str(uuid.uuid4()),
+        },
+        headers=merchant_auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "blocked"
+
+    incident = next(
+        incident
+        for incident in db_session.query(IncidentRecord).filter_by(session_id=ISOLATED_SESSION_ID)
+        if incident.evidence_summary.get("payout_id") == response.json()["payout_id"]
+    )
+    assert incident is not None
+    assert incident.sealed_at is not None
+
+    from app.models.evidence import IncidentSeal
+
+    seal = db_session.query(IncidentSeal).filter_by(incident_id=incident.incident_id).one()
+    detail = client.get(
+        f"/v1/evidence/seals/{seal.seal_id}",
+        headers=merchant_auth_headers,
+    )
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["seal_verification"]["valid"] is True
+    event_types = {entry["payload"].get("type") for entry in body["entries"]}
+    assert {"gateway_blocked", "session_isolated", "incident_sealed"} <= event_types
+    assert all(
+        entry["payload"].get("incident_id") == str(incident.incident_id)
+        for entry in body["entries"]
+        if entry["payload"].get("type") != "incident_sealed"
+    )

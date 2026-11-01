@@ -405,6 +405,8 @@ class TrustGatewayService:
                     db=db,
                     session=session,
                     merchant_id=principal.merchant_id,
+                    user_id=principal.user_id,
+                    source="gateway",
                     risk_score=routing_decision.risk_score,
                     action="payout",
                     trigger_reason=routing_decision.reason_codes[0]

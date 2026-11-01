@@ -185,6 +185,40 @@ def test_mock_provider_does_not_require_credentials():
     assert result.PAYPAL_CLIENT_SECRET == ""
 
 
+def test_production_paypal_sandbox_requires_webhook_id():
+    with pytest.raises(ValidationError, match="PAYPAL_WEBHOOK_ID"):
+        make_settings(
+            ENVIRONMENT="production",
+            ALLOW_DEV_AUTH=False,
+            DEV_AUTH_TOKEN="explicit-production-value",
+            OIDC_ISSUER_URL="https://issuer.example.com",
+            OIDC_AUDIENCE="identitytwin-api",
+            DATABASE_URL="postgresql+psycopg://user:pass@localhost/identitytwin",
+            PAYMENT_PROVIDER="paypal_sandbox",
+            **CREDENTIALS,
+            CANARY_HMAC_SECRET="A9kL2pQ7wX4zB6nM8rT1cV5yD3fG0hJ2",
+            EVIDENCE_HMAC_KEY="EviD3nce-HMAC-Key-9xR4mV7qL2sK8wT5",
+        )
+
+
+def test_production_paypal_sandbox_accepts_explicit_webhook_id():
+    result = make_settings(
+        ENVIRONMENT="production",
+        ALLOW_DEV_AUTH=False,
+        DEV_AUTH_TOKEN="explicit-production-value",
+        OIDC_ISSUER_URL="https://issuer.example.com",
+        OIDC_AUDIENCE="identitytwin-api",
+        DATABASE_URL="postgresql+psycopg://user:pass@localhost/identitytwin",
+        PAYMENT_PROVIDER="paypal_sandbox",
+        PAYPAL_WEBHOOK_ID="test-webhook-id",
+        **CREDENTIALS,
+        CANARY_HMAC_SECRET="A9kL2pQ7wX4zB6nM8rT1cV5yD3fG0hJ2",
+        EVIDENCE_HMAC_KEY="EviD3nce-HMAC-Key-9xR4mV7qL2sK8wT5",
+    )
+
+    assert result.PAYMENT_PROVIDER == "paypal_sandbox"
+
+
 # ----------------------------------------------------------------------
 # Secrets never appear in configuration errors
 # ----------------------------------------------------------------------

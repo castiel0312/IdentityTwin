@@ -23,12 +23,13 @@ it and use a dedicated PostgreSQL engine/session so the worker's
 ``SELECT ... FOR UPDATE SKIP LOCKED`` locking is exercised on its real dialect.
 """
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, delete, table, text
+from sqlalchemy import create_engine, delete, make_url, table, text
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
@@ -46,7 +47,16 @@ from app.schemas.sessions import SessionStatus, TrustLevel
 # ---------------------------------------------------------------------------
 # Dedicated PostgreSQL test database
 # ---------------------------------------------------------------------------
-PG_DATABASE_URL = "postgresql+psycopg2://admin@/identitytwin_reconciliation_test?host=/tmp"
+PG_DATABASE_URL = os.environ.get(
+    "IDENTITYTWIN_RECONCILIATION_TEST_DATABASE_URL",
+    "postgresql+psycopg://identitytwin_test:identitytwin_test"
+    "@127.0.0.1:55432/identitytwin_reconciliation_test",
+)
+if make_url(PG_DATABASE_URL).database != "identitytwin_reconciliation_test":
+    raise ValueError(
+        "IDENTITYTWIN_RECONCILIATION_TEST_DATABASE_URL must target the dedicated "
+        "'identitytwin_reconciliation_test' database; this test suite drops its tables."
+    )
 
 pg_engine = create_engine(PG_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=pg_engine)

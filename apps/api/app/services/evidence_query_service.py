@@ -31,9 +31,7 @@ LIMITATIONS = [
 ]
 
 
-def _summary(
-    seal: IncidentSeal, incident: IncidentRecord | None
-) -> EvidenceSealSummary:
+def _summary(seal: IncidentSeal, incident: IncidentRecord | None) -> EvidenceSealSummary:
     return EvidenceSealSummary(
         seal_id=seal.seal_id,
         incident_id=seal.incident_id,
@@ -66,9 +64,7 @@ def list_seals(
     offset = (page - 1) * page_size
     rows = db.execute(
         select(IncidentSeal, IncidentRecord)
-        .outerjoin(
-            IncidentRecord, IncidentRecord.incident_id == IncidentSeal.incident_id
-        )
+        .outerjoin(IncidentRecord, IncidentRecord.incident_id == IncidentSeal.incident_id)
         .where(IncidentSeal.merchant_id == principal.merchant_id)
         .order_by(IncidentSeal.sealed_at.desc())
         .limit(page_size)
@@ -94,16 +90,25 @@ def get_seal_detail(
             message="Evidence seal not found.", code="EVIDENCE_SEAL_NOT_FOUND"
         )
     incident = db.get(IncidentRecord, seal.incident_id)
-    rows = db.execute(
-        select(EvidenceLogEntry, EvidencePayload)
-        .join(EvidencePayload, EvidencePayload.seq == EvidenceLogEntry.seq)
-        .where(
-            EvidenceLogEntry.seq >= seal.start_seq,
-            EvidenceLogEntry.seq <= seal.end_seq,
-        )
-        .order_by(EvidenceLogEntry.seq.asc())
-    ).all() if seal.start_seq and seal.end_seq else []
+    rows = (
+        db.execute(
+            select(EvidenceLogEntry, EvidencePayload)
+            .join(EvidencePayload, EvidencePayload.seq == EvidenceLogEntry.seq)
+            .where(
+                EvidenceLogEntry.seq >= seal.start_seq,
+                EvidenceLogEntry.seq <= seal.end_seq,
+            )
+            .order_by(EvidenceLogEntry.seq.asc())
+        ).all()
+        if seal.start_seq and seal.end_seq
+        else []
+    )
 
+    owned_rows = [
+        (entry, payload)
+        for entry, payload in rows
+        if str((payload.payload or {}).get("session_id")) == str(seal.session_id)
+    ]
     entries = [
         EvidenceEntryView(
             seq=entry.seq,
@@ -114,7 +119,7 @@ def get_seal_detail(
             created_at=entry.created_at,
             payload=redact(dict(payload.payload or {})),
         )
-        for entry, payload in rows
+        for entry, payload in owned_rows
     ]
 
     previous = db.get(EvidenceLogEntry, seal.start_seq - 1) if seal.start_seq > 1 else None
@@ -180,11 +185,7 @@ def get_seal_detail(
             verification = SealVerificationView(
                 valid=expected_prev == seal.head_hash,
                 checked=len(rows),
-                reason=(
-                    None
-                    if expected_prev == seal.head_hash
-                    else "seal_head_mismatch"
-                ),
+                reason=(None if expected_prev == seal.head_hash else "seal_head_mismatch"),
                 head_matches=expected_prev == seal.head_hash,
                 first_broken_seq=None,
             )

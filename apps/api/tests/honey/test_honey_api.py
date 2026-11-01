@@ -17,7 +17,7 @@ from app.models.evidence import (
 )
 from app.models.incident import IncidentRecord
 from app.models.session import SessionRecord
-from tests.conftest import NORMAL_SESSION_ID
+from tests.conftest import NORMAL_SESSION_ID, TEST_USER_ID
 
 
 def test_honey_payout_shape(client, merchant_auth_headers):
@@ -25,8 +25,8 @@ def test_honey_payout_shape(client, merchant_auth_headers):
     resp = client.post(
         "/v1/honey/payouts",
         json={
-            "session_id": str(uuid.uuid4()),
-            "identity_id": str(uuid.uuid4()),
+            "session_id": str(NORMAL_SESSION_ID),
+            "identity_id": str(TEST_USER_ID),
             "amount": 1000,
             "recipient_email": "vendor@test.in",
         },
@@ -41,8 +41,8 @@ def test_honey_payout_shape(client, merchant_auth_headers):
 
 
 def test_honey_payout_state_persists_per_session(client, merchant_auth_headers, db_session):
-    session_id = str(uuid.uuid4())
-    identity_id = str(uuid.uuid4())
+    session_id = str(NORMAL_SESSION_ID)
+    identity_id = str(TEST_USER_ID)
     initial_world = bootstrap(session_id, identity_id)
     provider_invocations_before = mock_provider_instance.invocation_count
     profile_url = f"/v1/honey/merchant/profile?session_id={session_id}&identity_id={identity_id}"
@@ -78,6 +78,35 @@ def test_honey_payout_state_persists_per_session(client, merchant_auth_headers, 
     )
     assert retry_response.status_code == 200
     assert retry_response.json() == payout_response.json()
+
+    conflicting_retry = client.post(
+        "/v1/honey/payouts",
+        json={
+            "session_id": session_id,
+            "identity_id": identity_id,
+            "amount": 1200,
+            "recipient_email": "attacker@example.in",
+        },
+        headers={
+            **merchant_auth_headers,
+            "PayPal-Request-Id": "honey-state-test-001",
+        },
+    )
+    assert conflicting_retry.status_code == 409
+    recipient_conflict = client.post(
+        "/v1/honey/payouts",
+        json={
+            "session_id": session_id,
+            "identity_id": identity_id,
+            "amount": 1000,
+            "recipient_email": "different-recipient@example.in",
+        },
+        headers={
+            **merchant_auth_headers,
+            "PayPal-Request-Id": "honey-state-test-001",
+        },
+    )
+    assert recipient_conflict.status_code == 409
 
     profile = client.get(profile_url, headers=merchant_auth_headers).json()
     payouts = client.get(
@@ -123,8 +152,8 @@ def test_honey_payout_state_persists_per_session(client, merchant_auth_headers, 
 
 
 def test_honey_workspace_cannot_be_rebound_to_another_identity(client, merchant_auth_headers):
-    session_id = str(uuid.uuid4())
-    first_identity_id = str(uuid.uuid4())
+    session_id = str(NORMAL_SESSION_ID)
+    first_identity_id = str(TEST_USER_ID)
     second_identity_id = str(uuid.uuid4())
 
     first = client.get(
@@ -137,12 +166,12 @@ def test_honey_workspace_cannot_be_rebound_to_another_identity(client, merchant_
     )
 
     assert first.status_code == 200
-    assert second.status_code == 409
+    assert second.status_code == 403
 
 
 def test_honey_canary_issuance_is_repeatable(client, merchant_auth_headers, db_session):
-    session_id = str(uuid.uuid4())
-    identity_id = str(uuid.uuid4())
+    session_id = str(NORMAL_SESSION_ID)
+    identity_id = str(TEST_USER_ID)
     url = f"/v1/honey/developer/apps?session_id={session_id}&identity_id={identity_id}"
 
     first = client.get(url, headers=merchant_auth_headers)
@@ -174,7 +203,7 @@ def test_canary_reveal_isolates_session_and_seals_incident(
     client, merchant_auth_headers, db_session
 ):
     session_id = str(NORMAL_SESSION_ID)
-    identity_id = str(uuid.uuid4())
+    identity_id = str(TEST_USER_ID)
     apps_url = f"/v1/honey/developer/apps?session_id={session_id}&identity_id={identity_id}"
     issued = client.get(apps_url, headers=merchant_auth_headers)
     assert issued.status_code == 200
@@ -189,7 +218,7 @@ def test_canary_reveal_isolates_session_and_seals_incident(
         },
         headers=merchant_auth_headers,
     )
-    assert response.status_code == 200
+    assert response.status_code == 403
     assert "canary" not in response.text.lower()
 
     session = db_session.get(SessionRecord, NORMAL_SESSION_ID)
@@ -205,9 +234,51 @@ def test_canary_reveal_isolates_session_and_seals_incident(
     assert incident.sealed_at is not None
 
 
+def test_canary_from_another_session_cannot_isolate_target_session(
+    client, merchant_auth_headers, db_session
+):
+    source_session_id = str(NORMAL_SESSION_ID)
+    target_session_id = str(uuid.UUID("33333333-3333-3333-3333-333333333333"))
+    identity_id = str(TEST_USER_ID)
+    issued = client.get(
+        "/v1/honey/developer/apps",
+        params={"session_id": source_session_id, "identity_id": identity_id},
+        headers=merchant_auth_headers,
+    )
+    assert issued.status_code == 200
+    secret = issued.json()["items"][0]["client_secret"]
+
+    response = client.post(
+        "/v1/honey/developer/credentials/reveal",
+        json={
+            "session_id": target_session_id,
+            "identity_id": identity_id,
+            "client_secret": secret,
+        },
+        headers=merchant_auth_headers,
+    )
+    assert response.status_code == 200
+
+    target_session = db_session.get(SessionRecord, uuid.UUID(target_session_id))
+    assert target_session.status == "active"
+    assert target_session.trust_level == "RESTRICTED"
+    assert (
+        db_session.query(IncidentRecord)
+        .filter_by(session_id=uuid.UUID(target_session_id), trigger_reason="CANARY_INTERACTION")
+        .count()
+        == 0
+    )
+    canary = (
+        db_session.query(CanaryRecord)
+        .filter_by(session_id=uuid.UUID(source_session_id), kind="api_credential")
+        .one()
+    )
+    assert canary.armed is True
+
+
 def test_honey_no_leakage(client, merchant_auth_headers):
-    sid = str(uuid.uuid4())
-    iid = str(uuid.uuid4())
+    sid = str(NORMAL_SESSION_ID)
+    iid = str(TEST_USER_ID)
     requests = [
         ("get", f"/v1/honey/merchant/profile?session_id={sid}&identity_id={iid}", None),
         ("get", f"/v1/honey/customers?session_id={sid}&identity_id={iid}", None),
@@ -231,3 +302,28 @@ def test_honey_no_leakage(client, merchant_auth_headers):
         text = response.text.lower()
         for forbidden in ["honey", "fake", "decoy", "canary", "demo", "synthetic", "test"]:
             assert forbidden not in text, (url, forbidden)
+
+
+def test_honey_routes_require_authentication_and_owned_session(
+    client, merchant_auth_headers, other_merchant_auth_headers
+):
+    protected_routes = [
+        (
+            "/v1/honey/developer/apps",
+            {"session_id": str(NORMAL_SESSION_ID), "identity_id": str(TEST_USER_ID)},
+        ),
+        (
+            "/v1/merchant/merchant-info",
+            {"session_id": str(NORMAL_SESSION_ID), "identity_id": str(TEST_USER_ID)},
+        ),
+    ]
+    for path, params in protected_routes:
+        response = client.get(path, params=params)
+        assert response.status_code == 401
+
+    cross_merchant = client.get(
+        "/v1/honey/developer/apps",
+        params={"session_id": str(NORMAL_SESSION_ID), "identity_id": str(TEST_USER_ID)},
+        headers=other_merchant_auth_headers,
+    )
+    assert cross_merchant.status_code == 403

@@ -1,36 +1,30 @@
 FROM python:3.11-slim
 
-WORKDIR /workspace
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy pyproject.toml
-COPY apps/api/pyproject.toml ./apps/api/
-
-# Install python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-    fastapi>=0.100.0 \
-    "uvicorn[standard]>=0.23.0" \
-    "pydantic>=2.0" \
-    "pydantic-settings>=2.0" \
-    "sqlalchemy>=2.0.0" \
-    "alembic>=1.12.0" \
-    "psycopg[binary]>=3.1.0" \
-    "httpx>=0.24.0" \
-    "pytest>=7.0.0" \
-    "ruff>=0.1.0"
-
-# Copy source code
-COPY . .
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /workspace/apps/api
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app \
+    && useradd --system --gid app --home-dir /nonexistent app
+
+COPY apps/api/pyproject.toml apps/api/README.md ./
+COPY apps/api/app ./app
+COPY apps/api/alembic ./alembic
+COPY apps/api/alembic.ini ./alembic.ini
+COPY scripts/seed_demo.py /workspace/scripts/seed_demo.py
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir .
+
+USER app
+
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:8000/health || exit 1
+
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

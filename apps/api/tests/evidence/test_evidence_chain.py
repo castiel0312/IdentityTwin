@@ -14,6 +14,11 @@ from app.models.evidence import (
     EvidenceLogEntry,
     EvidencePayload,
 )
+from tests.conftest import (
+    RESTRICTED_SESSION_ID,
+    TEST_INCIDENT_ID,
+    TEST_MERCHANT_ID,
+)
 
 
 def make_scratch_chain():
@@ -125,9 +130,9 @@ def test_sqlite_evidence_storage_rejects_mutation(db_session):
 
 def test_evidence_seal_is_idempotent_and_blocks_session_appends(db_session):
     chain = EvidenceChain(db_session)
-    session_id = uuid.uuid4()
-    incident_id = uuid.uuid4()
-    merchant_id = uuid.uuid4()
+    session_id = RESTRICTED_SESSION_ID
+    incident_id = TEST_INCIDENT_ID
+    merchant_id = TEST_MERCHANT_ID
     chain.append("login", {"type": "login", "session_id": str(session_id)})
 
     seal = chain.seal(incident_id, session_id, merchant_id)

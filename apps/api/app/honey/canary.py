@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.secrets import get_canary_hmac_secret
 from app.models.canary import CanaryRecord
+from app.models.session import SessionRecord
 
 _ISSUE_LOCK = threading.RLock()
 _CANARY_KINDS = (
@@ -60,8 +61,17 @@ class CanaryRegistryService:
         self, session_id: str, identity_id: str | None = None, merchant_id: str | None = None
     ) -> list[dict[str, Any]]:
         session_uuid = uuid.UUID(session_id)
-        identity_uuid = uuid.UUID(identity_id) if identity_id else None
-        merchant_uuid = uuid.UUID(merchant_id) if merchant_id else None
+        if identity_id is None or merchant_id is None:
+            raise ValueError("Canary issuance requires an owned session, identity and merchant.")
+        identity_uuid = uuid.UUID(identity_id)
+        merchant_uuid = uuid.UUID(merchant_id)
+        session = self.db.get(SessionRecord, session_uuid)
+        if (
+            session is None
+            or session.user_id != identity_uuid
+            or session.merchant_id != merchant_uuid
+        ):
+            raise ValueError("Canary issuance requires an owned session, identity and merchant.")
         with _ISSUE_LOCK:
             if self.db.get_bind().dialect.name == "postgresql":
                 self.db.execute(text("SELECT pg_advisory_xact_lock(123456789, 44)"))
@@ -77,6 +87,8 @@ class CanaryRegistryService:
                     raise ValueError("Canary session is already bound to another identity.")
                 if merchant_uuid is not None and record.merchant_id not in (None, merchant_uuid):
                     raise ValueError("Canary session is already bound to another merchant.")
+                record.identity_id = identity_uuid
+                record.merchant_id = merchant_uuid
 
             for counter, kind in enumerate(_CANARY_KINDS):
                 if kind in by_kind:
@@ -152,18 +164,28 @@ class CanaryRegistryService:
             )
             rec = self.db.scalars(stmt).first()
             if rec and rec.armed:
-                cross_session = False
-                # Check if belongs to different session context if provided
                 obs_sid = observation.get("session_id") if isinstance(observation, dict) else None
-                if obs_sid and rec.session_id and str(rec.session_id) != str(obs_sid):
-                    cross_session = True
+                obs_merchant = (
+                    observation.get("merchant_id") if isinstance(observation, dict) else None
+                )
+                obs_identity = (
+                    observation.get("identity_id") if isinstance(observation, dict) else None
+                )
+                try:
+                    same_session = rec.session_id == uuid.UUID(str(obs_sid))
+                    same_merchant = rec.merchant_id == uuid.UUID(str(obs_merchant))
+                    same_identity = rec.identity_id == uuid.UUID(str(obs_identity))
+                except (TypeError, ValueError):
+                    continue
+                if not (same_session and same_merchant and same_identity):
+                    continue
                 rec.armed = False
                 rec.triggered_at = datetime.now(timezone.utc)
                 rec.trigger_meta = {
                     "matched_in": observation.get("matched_in")
                     if isinstance(observation, dict)
                     else "unknown",
-                    "cross_session_reuse": cross_session,
+                    "cross_session_reuse": False,
                 }
                 self.db.commit()
                 return {
@@ -173,7 +195,7 @@ class CanaryRegistryService:
                     "tag": rec.tag,
                     "session_id": str(rec.session_id) if rec.session_id else None,
                     "observed_session_id": str(obs_sid) if obs_sid else None,
-                    "cross_session_reuse": cross_session,
+                    "cross_session_reuse": False,
                     "matched_in": rec.trigger_meta.get("matched_in"),
                 }
         return None

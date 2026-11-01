@@ -1,11 +1,13 @@
 # Honey Workspace and Evidence Plane
 
-This document describes the implemented Person 4 scope, including behavior
-verified by automated tests and live Docker Compose/PostgreSQL checks.
+This document describes the implemented Person 4 scope and its current
+automated-test coverage.
 
 ## Implemented behavior
 
-- Honey endpoints are mounted under `/v1/honey/*` and return synthetic merchant,
+- Honey endpoints are mounted under `/v1/honey/*` and require an authenticated
+  principal with an active session owned by that principal's user and merchant.
+  Request-supplied identity IDs must match the authenticated user. They return synthetic merchant,
   customer, invoice, transaction, payee, payout, and developer-app data.
 - Selected operations also use provider-shaped paths, including
   `/v1/payments/payouts`, `/v2/invoicing/invoices`, and
@@ -18,15 +20,23 @@ verified by automated tests and live Docker Compose/PostgreSQL checks.
   marked synthetic, and a session cannot be rebound to another identity.
 - Simulated payouts update that workspace's balance, payout and transaction
   history, and payee list. `PayPal-Request-Id` and `Idempotency-Key` retries
-  return the original payout response without applying the balance change twice.
+  return the original payout response without applying the balance change twice
+  only when the original amount, currency, recipient, session, and identity
+  match. Reusing a key with different payout parameters returns HTTP 409.
   These routes do not call the payment provider.
 - Canary values are HMAC-derived, scoped to the issuing session, and issuance
-  is repeatable per session/kind. Developer-app credentials and invoice exports
-  include canary values.
+  is repeatable per session/kind. They are bound to the session's owning user
+  and merchant. Developer-app credentials and invoice exports include canary
+  values only for an authenticated owner.
 - Canary observations on honey requests inspect headers, path, query, and
   bounded-depth request-body content. Requests are recorded in the honey
-  activity log. A detected value records evidence and, when the session exists,
-  opens or updates an incident, isolates the session, and seals its evidence.
+  activity log. A matching value in its owning session records evidence,
+  opens or updates an incident, isolates that same session, seals its evidence,
+  and blocks the honey operation. A value from another session is not consumed
+  and cannot isolate the observed session.
+- Production startup requires a `CANARY_HMAC_SECRET` with at least 32
+  characters and sufficient character entropy; the development fallback is
+  never used in production.
 - Evidence records contain a canonical payload hash and a chained hash.
   Verification checks sequence continuity, payload hashes, stored previous
   hashes, orphan payloads, and the persisted chain-head checkpoint, including
@@ -37,6 +47,12 @@ verified by automated tests and live Docker Compose/PostgreSQL checks.
 - Evidence verification, incident timelines, and attack traces are based on
   persisted evidence. `POST /v1/simulate/attack` exercises the canary
   containment path.
+- Seal creation verifies that its incident, session, and merchant belong
+  together. Seal-detail responses include only the sealed session's entries;
+  hash-chain validation still verifies the complete global sequence interval
+  without returning other tenants' payloads.
+- Gateway-driven blocks append `gateway_blocked` and `session_isolated`
+  evidence linked to the incident and seal the resulting evidence.
 
 ## Deployment and testing notes
 
@@ -52,7 +68,8 @@ issuance, payout persistence/idempotency, and normalized honey-resource
 persistence. SQLite startup installs the same append-only evidence guards;
 tests that deliberately tamper with evidence use an isolated scratch database.
 
-The following were verified against the running Compose/PostgreSQL stack:
+The following are historical deployment checks documented by the prior delivery;
+they were not rerun during this remediation:
 
 - Migrations apply through `010_normalized_honey_workspace`, including the
   honey schema tables.
@@ -103,8 +120,10 @@ $headers = @{ Authorization = "Bearer $token" }
 
 Invoke-RestMethod -Method Post -Uri "http://localhost:8000/v1/simulate/attack" -Headers $headers
 Invoke-RestMethod -Uri "http://localhost:8000/v1/evidence/verify" -Headers $headers
-Invoke-RestMethod -Uri "http://localhost:8000/v1/honey/merchant/profile?session_id=test&identity_id=test"
-Invoke-RestMethod -Uri "http://localhost:8000/v1/merchant/merchant-info?session_id=test&identity_id=test"
+$sessionId = "<active session owned by the authenticated user>"
+$identityId = "<authenticated user UUID>"
+Invoke-RestMethod -Uri "http://localhost:8000/v1/honey/merchant/profile?session_id=$sessionId&identity_id=$identityId" -Headers $headers
+Invoke-RestMethod -Uri "http://localhost:8000/v1/merchant/merchant-info?session_id=$sessionId&identity_id=$identityId" -Headers $headers
 ```
 
 ## Security properties and limits

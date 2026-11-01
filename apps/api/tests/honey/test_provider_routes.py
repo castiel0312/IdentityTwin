@@ -2,8 +2,10 @@ import uuid
 
 
 def test_provider_shaped_honey_routes_use_the_session_workspace(client, merchant_auth_headers):
-    session_id = str(uuid.uuid4())
-    identity_id = str(uuid.uuid4())
+    from tests.conftest import NORMAL_SESSION_ID, TEST_USER_ID
+
+    session_id = str(NORMAL_SESSION_ID)
+    identity_id = str(TEST_USER_ID)
     scope = f"session_id={session_id}&identity_id={identity_id}"
 
     profile = client.get(

@@ -115,6 +115,8 @@ class EventService:
                 db=self.db,
                 session=session,
                 merchant_id=principal.merchant_id,
+                user_id=principal.user_id,
+                source="event_ingestion",
                 risk_score=risk_result.risk_score,
                 action=request.action,
                 trigger_reason=risk_result.reason_codes[0]

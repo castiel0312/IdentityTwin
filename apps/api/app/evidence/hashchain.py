@@ -15,6 +15,7 @@ from app.models.evidence import (
     IncidentSeal,
 )
 from app.models.incident import IncidentRecord
+from app.models.session import SessionRecord
 
 GENESIS_PREV_HASH = "0" * 64
 _APPEND_LOCK = threading.RLock()
@@ -187,10 +188,24 @@ class EvidenceChain:
     ) -> dict[str, Any]:
         incident_uuid = UUID(str(incident_id))
         session_uuid = UUID(str(session_id))
+        merchant_uuid = UUID(str(merchant_id))
+        incident = self.db.get(IncidentRecord, incident_uuid)
+        session = self.db.get(SessionRecord, session_uuid)
+        if (
+            incident is None
+            or session is None
+            or incident.session_id != session_uuid
+            or incident.merchant_id != merchant_uuid
+            or session.merchant_id != merchant_uuid
+        ):
+            raise ValueError("Evidence seal must match the incident, session and merchant.")
+
         existing = self.db.scalars(
             select(IncidentSeal).where(IncidentSeal.incident_id == incident_uuid)
         ).first()
         if existing:
+            if existing.session_id != session_uuid or existing.merchant_id != merchant_uuid:
+                raise ValueError("Existing evidence seal belongs to a different tenant scope.")
             return {
                 "seal_id": str(existing.seal_id),
                 "incident_id": str(existing.incident_id),
@@ -229,9 +244,7 @@ class EvidenceChain:
             head_hash=head_hash,
         )
         self.db.add(seal)
-        incident = self.db.get(IncidentRecord, incident_uuid)
-        if incident is not None:
-            incident.sealed_at = datetime.now(timezone.utc)
+        incident.sealed_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(seal)
         return {

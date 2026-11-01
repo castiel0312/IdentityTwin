@@ -111,6 +111,38 @@ npm run test:e2e
 The Playwright suite starts its own API on port `8010` and Vite on port `5174`,
 using `apps/api/identitytwin_e2e.db`. The disposable database is deleted and
 re-seeded for every run; the developer database and servers are untouched.
+It uses the repository `.venv` when available, otherwise `py -3` on Windows or
+`python3` on macOS/Linux. Set `IDENTITYTWIN_PYTHON` to select another Python
+executable. Install the Playwright browser once with
+`npx playwright install chromium` if it is not already installed.
+
+The PostgreSQL-specific reconciliation tests require a dedicated database
+because they create and drop their tables. Start an isolated local PostgreSQL
+container from the repository root:
+
+```powershell
+docker run --name identitytwin-reconciliation-test `
+  -e POSTGRES_USER=identitytwin_test `
+  -e POSTGRES_PASSWORD=identitytwin_test `
+  -e POSTGRES_DB=identitytwin_reconciliation_test `
+  -p 127.0.0.1:55432:5432 `
+  -d postgres:16-alpine
+```
+
+Wait until it is healthy, then run `python -m pip install -e "apps/api[dev]"`
+if the API dependencies are not installed and execute:
+
+```powershell
+cd apps/api
+python -m pytest tests/test_reconciliation_worker.py -q
+```
+
+The test defaults to that container and refuses a connection URL whose database
+is not exactly `identitytwin_reconciliation_test`. To use another host or port,
+set `IDENTITYTWIN_RECONCILIATION_TEST_DATABASE_URL` while keeping that dedicated
+database name. Stop and remove the disposable container after testing with
+`docker stop identitytwin-reconciliation-test` and
+`docker rm identitytwin-reconciliation-test`.
 
 ---
 
@@ -197,6 +229,10 @@ make seed
 # 4. Start API container or run local dev
 make dev
 ```
+
+To run the complete containerized demo, including the built console, see
+[`deployment.md`](./deployment.md). The Compose stack is local/demo-only and
+must not be treated as a production deployment.
 
 ---
 

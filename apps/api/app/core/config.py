@@ -1,3 +1,5 @@
+import math
+from collections import Counter
 from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationInfo, field_validator, model_validator
@@ -21,6 +23,26 @@ PAYPAL_ALLOWED_SANDBOX_HOSTS = frozenset({PAYPAL_SANDBOX_HOST})
 PAYMENT_PROVIDER_MOCK = "mock"
 PAYMENT_PROVIDER_PAYPAL_SANDBOX = "paypal_sandbox"
 ALLOWED_PAYMENT_PROVIDERS = frozenset({PAYMENT_PROVIDER_MOCK, PAYMENT_PROVIDER_PAYPAL_SANDBOX})
+
+
+def has_valid_canary_secret_entropy(secret: str) -> bool:
+    value = secret.strip()
+    if not has_valid_secret_entropy(value):
+        return False
+
+    return value != "dev-canary-secret-change-me"
+
+
+def has_valid_secret_entropy(secret: str) -> bool:
+    value = secret.strip()
+    if len(value) < 32:
+        return False
+
+    counts = Counter(value)
+    entropy = -sum(
+        (count / len(value)) * math.log2(count / len(value)) for count in counts.values()
+    )
+    return entropy >= 3.5
 
 
 def validate_paypal_base_url(value: str) -> str:
@@ -143,6 +165,14 @@ class Settings(BaseSettings):
         ge=60,
         le=86400,
         description="JWKS cache TTL in seconds.",
+    )
+    CANARY_HMAC_SECRET: str = Field(
+        default="",
+        description="High-entropy HMAC secret used to derive honey canaries.",
+    )
+    EVIDENCE_HMAC_KEY: str = Field(
+        default="",
+        description="High-entropy HMAC key used to sign evidence chain checkpoints.",
     )
 
     # Database
@@ -419,18 +449,25 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "ALLOW_DEV_AUTH cannot be enabled when ENVIRONMENT is 'production'"
                 )
+            canary_secret = self.CANARY_HMAC_SECRET.strip()
+            if not has_valid_canary_secret_entropy(canary_secret):
+                raise ValueError(
+                    "CANARY_HMAC_SECRET must be explicitly configured with at least "
+                    "32 characters of sufficient complexity when ENVIRONMENT is 'production'."
+                )
+            if not has_valid_secret_entropy(self.EVIDENCE_HMAC_KEY):
+                raise ValueError(
+                    "EVIDENCE_HMAC_KEY must be explicitly configured with at least "
+                    "32 characters of sufficient complexity when ENVIRONMENT is 'production'."
+                )
             if "sqlite" in self.DATABASE_URL.lower():
                 raise ValueError(
                     "SQLite cannot be used as the database in production. Use PostgreSQL."
                 )
             if not self.OIDC_ISSUER_URL.strip():
-                raise ValueError(
-                    "OIDC_ISSUER_URL is required when ENVIRONMENT is 'production'"
-                )
+                raise ValueError("OIDC_ISSUER_URL is required when ENVIRONMENT is 'production'")
             if not self.OIDC_AUDIENCE.strip():
-                raise ValueError(
-                    "OIDC_AUDIENCE is required when ENVIRONMENT is 'production'"
-                )
+                raise ValueError("OIDC_AUDIENCE is required when ENVIRONMENT is 'production'")
             if not self.DEV_AUTH_TOKEN.strip():
                 raise ValueError(
                     "DEV_AUTH_TOKEN must be explicitly set (cannot use default) in production"
@@ -445,6 +482,14 @@ class Settings(BaseSettings):
                         "Use PAYMENT_PROVIDER='paypal_sandbox' or set the explicit "
                         "PAYMENT_PROVIDER_PRODUCTION_MOCK_OVERRIDE flag."
                     )
+            if (
+                self.PAYMENT_PROVIDER == PAYMENT_PROVIDER_PAYPAL_SANDBOX
+                and not self.PAYPAL_WEBHOOK_ID.strip()
+            ):
+                raise ValueError(
+                    "PAYPAL_WEBHOOK_ID is required in production when "
+                    "PAYMENT_PROVIDER='paypal_sandbox'."
+                )
         return self
 
 

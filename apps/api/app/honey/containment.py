@@ -3,20 +3,47 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import OwnershipMismatchException
+from app.core.security import AuthenticatedPrincipal
 from app.evidence.hashchain import EvidenceChain
 from app.honey.events import containment_event_bus
+from app.models.canary import CanaryRecord
 from app.models.incident import IncidentRecord
 from app.models.session import SessionRecord
 from app.schemas.incidents import IncidentSeverity, IncidentStatus
 from app.schemas.sessions import SessionStatus, TrustLevel
 
 
-def contain_canary_hit(db: Session, hit: dict) -> str | None:
-    """Record a canary hit and isolate its observed session when it exists."""
-    observed_session_id = hit.get("observed_session_id") or hit.get("session_id")
+def contain_canary_hit(db: Session, hit: dict, principal: AuthenticatedPrincipal) -> str | None:
+    """Contain a canary hit only for its authenticated owning session."""
+    try:
+        canary_uuid = UUID(str(hit.get("canary_id")))
+        session_uuid = UUID(str(hit.get("session_id")))
+        observed_session_uuid = UUID(str(hit.get("observed_session_id")))
+    except (TypeError, ValueError):
+        return None
+
+    canary = db.get(CanaryRecord, canary_uuid)
+    session = db.get(SessionRecord, session_uuid)
+    if (
+        canary is None
+        or session is None
+        or canary.session_id != session_uuid
+        or observed_session_uuid != session_uuid
+        or canary.identity_id != principal.user_id
+        or canary.merchant_id != principal.merchant_id
+        or session.user_id != principal.user_id
+        or session.merchant_id != principal.merchant_id
+    ):
+        raise OwnershipMismatchException(
+            message="Canary hit does not belong to the authenticated session."
+        )
+
+    observed_session_id = str(session_uuid)
     evidence_payload = {
         "type": "canary_triggered",
         "session_id": observed_session_id,
+        "merchant_id": str(session.merchant_id),
         "canary_session_id": hit.get("session_id"),
         "canary_id": hit.get("canary_id"),
         "kind": hit.get("kind"),
@@ -27,15 +54,6 @@ def contain_canary_hit(db: Session, hit: dict) -> str | None:
     chain = EvidenceChain(db)
     chain.append("canary_triggered", evidence_payload)
 
-    try:
-        session_uuid = UUID(str(observed_session_id))
-    except (TypeError, ValueError):
-        return None
-
-    session = db.get(SessionRecord, session_uuid)
-    if session is None:
-        return None
-
     session.status = SessionStatus.REVOKED.value
     session.trust_level = TrustLevel.ISOLATED.value
     session.risk_score = 100.0
@@ -43,6 +61,7 @@ def contain_canary_hit(db: Session, hit: dict) -> str | None:
     incident = db.scalars(
         select(IncidentRecord)
         .where(IncidentRecord.session_id == session_uuid)
+        .where(IncidentRecord.merchant_id == session.merchant_id)
         .where(IncidentRecord.status == IncidentStatus.OPEN.value)
         .order_by(IncidentRecord.created_at.desc())
     ).first()
@@ -74,6 +93,7 @@ def contain_canary_hit(db: Session, hit: dict) -> str | None:
         {
             "type": "session_isolated",
             "session_id": str(session_uuid),
+            "merchant_id": str(session.merchant_id),
             "incident_id": str(incident.incident_id),
             "risk_after": 100,
             "trust_level": TrustLevel.ISOLATED.value,

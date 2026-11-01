@@ -299,6 +299,8 @@ def seed() -> None:
                 db.add(sess)
                 print(f"Created demo session [{trust}]: {s_id}")
 
+        db.flush()
+
         # 4. Incident
         incident = (
             db.query(IncidentRecord).filter_by(incident_id=DEMO_INCIDENT_ID).first()
@@ -340,6 +342,7 @@ def seed() -> None:
                 description="Demo agent allowed to settle merchant payouts up to 500.00.",
             )
             db.add(agent)
+            db.flush()
             print(f"Created demo agent: {DEMO_AGENT_ID}")
 
         grant = (
@@ -797,6 +800,7 @@ def _seed_demo_agent_reads(db, now: datetime) -> None:
                 updated_at=now - timedelta(days=3),
             )
         )
+    db.flush()
     if db.get(AgentAuthorizationGrant, DEMO_SECOND_GRANT_ID) is None:
         db.add(
             AgentAuthorizationGrant(

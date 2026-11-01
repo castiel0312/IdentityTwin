@@ -95,9 +95,9 @@ def simulate_attack(
 
     chain = EvidenceChain(db)
     session_id = str(uuid.uuid4())
-    identity_id = str(uuid.uuid4())
     merchant_id = str(principal.merchant_id)
     user_id = str(principal.user_id)
+    identity_id = user_id
     merchant_uuid = uuid.UUID(merchant_id)
     user_uuid = uuid.UUID(user_id)
     if db.get(Merchant, merchant_uuid) is None:
@@ -165,12 +165,14 @@ def simulate_attack(
         {
             "body": {"client_secret": canary["secret_value"]},
             "session_id": session_id,
+            "identity_id": identity_id,
+            "merchant_id": merchant_id,
             "matched_in": "developer.credentials.reveal",
         }
     )
     if not hit:
         raise RuntimeError("The simulated canary did not trigger.")
-    incident_id = contain_canary_hit(db, hit)
+    incident_id = contain_canary_hit(db, hit, principal)
     if incident_id is None:
         raise RuntimeError("The simulation could not isolate its session.")
     verify_res = chain.verify()
