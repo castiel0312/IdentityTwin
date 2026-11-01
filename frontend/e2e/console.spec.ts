@@ -1,8 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const MERCHANT_INCIDENT = "66666666-6666-6666-6666-666666666666";
+const NORMAL_SESSION = "22222222-2222-2222-2222-222222222222";
+const RESTRICTED_SESSION = "33333333-3333-3333-3333-333333333333";
+const DECOY_SESSION = "44444444-4444-4444-4444-444444444444";
+const MERCHANT_USER = "11111111-1111-1111-1111-111111111111";
+const API_BASE_URL = "http://127.0.0.1:8010";
 
-async function signIn(page: Page, persona: "Merchant operator" | "Risk analyst" = "Merchant operator") {
+async function signIn(
+  page: Page,
+  persona: "Merchant operator" | "Risk analyst" | "Other merchant" = "Merchant operator",
+) {
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Sign in to the console" })).toBeVisible();
   await page.getByRole("button", { name: new RegExp(persona) }).click();
@@ -180,6 +188,123 @@ test.describe("merchant console", () => {
     await expect(page.getByRole("alert").getByText("Backend unreachable")).toBeVisible();
     await expect(page.getByRole("button", { name: "Retry request" })).toBeVisible();
     await expect(page.getByText("No analytics data returned")).toHaveCount(0);
+  });
+
+  test("projects seeded honey workspaces and redacts canary secrets across merchants", async ({ page }) => {
+    await signIn(page);
+    const auth = { Authorization: "Bearer dev-merchant-token" };
+
+    const unauthorized = await page.request.get(`${API_BASE_URL}/v1/honey/operator/workspaces`);
+    expect(unauthorized.status()).toBe(401);
+
+    const workspacesResponse = await page.request.get(
+      `${API_BASE_URL}/v1/honey/operator/workspaces`,
+      { headers: auth },
+    );
+    expect(workspacesResponse.status()).toBe(200);
+    const workspaces = await workspacesResponse.json();
+    expect(workspaces.items.map((item: { session_id: string }) => item.session_id)).toContain(
+      DECOY_SESSION,
+    );
+
+    const canariesResponse = await page.request.get(
+      `${API_BASE_URL}/v1/honey/operator/canaries`,
+      { headers: auth },
+    );
+    expect(canariesResponse.status()).toBe(200);
+    const canaries = await canariesResponse.json();
+    expect(canaries.total).toBeGreaterThan(0);
+    expect(JSON.stringify(canaries)).not.toContain("secret_value");
+
+    await page.getByRole("link", { name: "Honey Workspace", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Honey workspace", exact: true }),
+    ).toBeVisible();
+    const decoyWorkspace = page.locator(`a[href="/honey/${DECOY_SESSION}"]`).first();
+    await expect(decoyWorkspace).toBeVisible();
+    await decoyWorkspace.click();
+    await expect(page.getByText("Synthetic decoy", { exact: true })).toBeVisible();
+    await expect(page.getByText("5 / 0", { exact: true })).toBeVisible();
+    const visibleWorkspace = await page.locator("body").innerText();
+    expect(visibleWorkspace).not.toContain("secret_value");
+    expect(visibleWorkspace).not.toContain("client_secret");
+
+    const otherMerchantPage = await page.context().newPage();
+    await signIn(otherMerchantPage, "Other merchant");
+    await otherMerchantPage.getByRole("link", { name: "Honey Workspace", exact: true }).click();
+    await expect(otherMerchantPage.getByText("No honey workspaces")).toBeVisible();
+    await expect(otherMerchantPage.getByText("No canaries issued.")).toBeVisible();
+    await otherMerchantPage.close();
+  });
+
+  test("contains a canary hit only in its owning session and seals the resulting incident", async ({
+    page,
+  }) => {
+    await signIn(page);
+    const auth = { Authorization: "Bearer dev-merchant-token" };
+    const scope = `session_id=${NORMAL_SESSION}&identity_id=${MERCHANT_USER}`;
+
+    const issuedResponse = await page.request.get(
+      `${API_BASE_URL}/v1/honey/developer/apps?${scope}`,
+      { headers: auth },
+    );
+    expect(issuedResponse.status()).toBe(200);
+    const issued = await issuedResponse.json();
+    const canarySecret = issued.items[0].client_secret as string;
+    expect(canarySecret).toBeTruthy();
+
+    const crossSessionAttempt = await page.request.post(
+      `${API_BASE_URL}/v1/honey/developer/credentials/reveal`,
+      {
+        headers: auth,
+        data: {
+          session_id: RESTRICTED_SESSION,
+          identity_id: MERCHANT_USER,
+          client_secret: canarySecret,
+        },
+      },
+    );
+    expect(crossSessionAttempt.status()).toBe(200);
+    const untouchedWorkspace = await page.request.get(
+      `${API_BASE_URL}/v1/honey/operator/workspaces/${RESTRICTED_SESSION}`,
+      { headers: auth },
+    );
+    expect(untouchedWorkspace.status()).toBe(200);
+    const untouchedDetail = await untouchedWorkspace.json();
+    expect(untouchedDetail.workspace.session_status).toBe("active");
+    expect(untouchedDetail.workspace.canaries_triggered).toBe(0);
+
+    const hit = await page.request.post(
+      `${API_BASE_URL}/v1/honey/developer/credentials/reveal`,
+      {
+        headers: auth,
+        data: {
+          session_id: NORMAL_SESSION,
+          identity_id: MERCHANT_USER,
+          client_secret: canarySecret,
+        },
+      },
+    );
+    expect(hit.status()).toBe(403);
+
+    const containedWorkspace = await page.request.get(
+      `${API_BASE_URL}/v1/honey/operator/workspaces/${NORMAL_SESSION}`,
+      { headers: auth },
+    );
+    expect(containedWorkspace.status()).toBe(200);
+    const detail = await containedWorkspace.json();
+    expect(detail.workspace.session_status).toBe("revoked");
+    expect(detail.workspace.containment_incident_id).toBeTruthy();
+    expect(
+      detail.canaries.some((canary: { triggered_at: string | null }) => canary.triggered_at),
+    ).toBe(true);
+
+    await page.getByRole("link", { name: "Honey Workspace", exact: true }).click();
+    await page.locator(`a[href="/honey/${NORMAL_SESSION}"]`).first().click();
+    await expect(
+      page.getByRole("link", { name: /Incident [0-9a-f]{8}/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Triggered", { exact: true })).toBeVisible();
   });
 });
 
