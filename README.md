@@ -252,18 +252,23 @@ npm run openapi:types
 
 | Teammate | Focus Area | Integration Touchpoint | Status |
 | :--- | :--- | :--- | :--- |
-| **Frontend** | React Dashboard | `frontend/` consumes `packages/contracts/openapi.json` via generated TypeScript types; all 10 modules implemented. | Console delivered (64 API paths) |
+| **Frontend** | React Dashboard | `frontend/` consumes `packages/contracts/openapi.json` via generated TypeScript types; all 10 modules implemented. | Console delivered (72 API paths) |
 | **Person 2** | Risk Intelligence | Implement `IRiskEngineService` in `app/risk/service.py`. Consume `SecurityEvent` telemetry. | 7 Named Signals Connected |
 | **Person 3** | PayPal Integration | `PayPalSandboxAdapter` in `app/gateway/provider.py`. Connect PayPal Sandbox credentials in `.env`. Internal agentic commerce adapter in `app/gateway/agentic.py` (`POST /v1/agentic/payouts`). | Trust Gateway sends allowed payouts to PayPal Sandbox when configured |
 | **Person 4** | Honey Workspace | `DecoyHoneyAdapter` in `app/gateway/provider.py`; workspace, canaries, containment, and evidence. | Suspicious payouts persist in the synthetic honey workspace; the decoy branch never invokes the PayPal adapter |
 | **Person 5** | Evidence & Incidents | Consume `SecurityEvent`, `RiskDecisionRecord`, and `AnalystActionRecord` from database. | Evidence chain and incident timeline implemented |
-| **Person 6** | AI Investigator | Read incident telemetry via `GET /v1/incidents/{id}`. | Read API Ready |
+| **Person 6** | AI Investigator | Deterministic, redacted, read-only investigation API and incident-console panel. | Advisory findings only; never affects routing, risk, trust, access or payments |
 
 Person 4 implementation details, tested behavior, and deployment limitations are
 tracked in [`docs/honey-and-evidence.md`](docs/honey-and-evidence.md). In
 particular, honey state and its session-scoped resource tables are implemented;
 PostgreSQL role isolation, API restart persistence, and evidence-backed attack
 simulation were verified against the running Compose stack.
+
+Person 6's read-only AI Investigator is documented in
+[`docs/ai-investigator.md`](docs/ai-investigator.md): deterministic evidence
+extraction and redaction run first, findings are advisory, and the optional LLM
+narrative is disabled by default.
 
 ---
 

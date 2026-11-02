@@ -255,6 +255,58 @@ export const api = {
     );
   },
 
+  listIncidentInvestigations(session: AuthSession, incidentId: string) {
+    return request<Schema<"InvestigationListResponse">>(
+      session,
+      `/v1/incidents/${encodeURIComponent(incidentId)}/investigations`,
+    );
+  },
+
+  createIncidentInvestigation(
+    session: AuthSession,
+    incidentId: string,
+    body: Schema<"InvestigationCreateRequest"> = { use_llm: true },
+  ) {
+    return request<Schema<"InvestigationResponse">>(
+      session,
+      `/v1/incidents/${encodeURIComponent(incidentId)}/investigations`,
+      { method: "POST", body },
+    );
+  },
+
+  investigation(session: AuthSession, investigationId: string) {
+    return request<Schema<"InvestigationResponse">>(
+      session,
+      `/v1/investigations/${encodeURIComponent(investigationId)}`,
+    );
+  },
+
+  listSessionIntentProfiles(session: AuthSession, sessionId: string) {
+    return request<Schema<"IntentProfileListResponse">>(
+      session,
+      `/v1/sessions/${encodeURIComponent(sessionId)}/intent-profiles`,
+    );
+  },
+
+  createSessionIntentProfile(
+    session: AuthSession,
+    sessionId: string,
+    body: Schema<"IntentProfileCreateRequest"> = { use_llm: true },
+  ) {
+    return request<Schema<"IntentProfileResponse">>(
+      session,
+      `/v1/sessions/${encodeURIComponent(sessionId)}/intent-profiles`,
+      { method: "POST", body },
+    );
+  },
+
+  intentProfile(session: AuthSession, profileId: string) {
+    return request<Schema<"IntentProfileResponse">>(
+      session,
+      `/v1/intent-profiles/${encodeURIComponent(profileId)}`,
+    );
+  },
+
   approveIncident(
     session: AuthSession,
     incidentId: string,

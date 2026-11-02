@@ -29,7 +29,7 @@ export function RiskDecisionPage() {
     <div className="space-y-6">
       <div>
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2"><Link to="/risk"><ArrowLeft className="h-4 w-4" /> Back to decisions</Link></Button>
-        <PageHeader eyebrow="Risk decision" title={decision.decision_id} description={<span className="flex flex-wrap items-center gap-2"><TrustBadge level={decision.trust_level} /><StatusBadge status={decision.action} /><RiskMeter score={decision.risk_score} /><span className="text-xs text-muted-foreground">{humanizeCode(decision.routing_destination)}</span></span>} actions={<Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")} /> Refresh</Button>} />
+        <PageHeader eyebrow="Risk decision" title={decision.decision_id} description={<div className="flex flex-wrap items-center gap-2"><TrustBadge level={decision.trust_level} /><StatusBadge status={decision.action} /><RiskMeter score={decision.risk_score} /><span className="text-xs text-muted-foreground">{humanizeCode(decision.routing_destination)}</span></div>} actions={<Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")} /> Refresh</Button>} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">

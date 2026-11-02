@@ -3,6 +3,7 @@ import sys
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
+
 from alembic import context
 
 # Ensure app is in pythonpath
@@ -16,7 +17,7 @@ config = context.config
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Set database URL dynamically from app settings
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

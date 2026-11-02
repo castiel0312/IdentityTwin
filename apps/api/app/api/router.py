@@ -8,6 +8,8 @@ from app.api.routes.evidence import router as evidence_router
 from app.api.routes.health import router as health_router
 from app.api.routes.honey_operator import router as honey_operator_router
 from app.api.routes.incidents import router as incidents_router
+from app.api.routes.intent import router as intent_router
+from app.api.routes.investigations import router as investigations_router
 from app.api.routes.payouts import router as payouts_router
 from app.api.routes.reconciliation import router as reconciliation_router
 from app.api.routes.risk import router as risk_router
@@ -26,6 +28,8 @@ api_v1_router.include_router(reconciliation_router)
 api_v1_router.include_router(sessions_router)
 api_v1_router.include_router(payouts_router)
 api_v1_router.include_router(incidents_router)
+api_v1_router.include_router(intent_router)
+api_v1_router.include_router(investigations_router)
 api_v1_router.include_router(webhooks_router)
 api_v1_router.include_router(twin_router)
 api_v1_router.include_router(stubs_router)

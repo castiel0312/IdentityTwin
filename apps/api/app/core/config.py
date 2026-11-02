@@ -1,3 +1,4 @@
+import ipaddress
 import math
 from collections import Counter
 from urllib.parse import urlsplit
@@ -23,6 +24,63 @@ PAYPAL_ALLOWED_SANDBOX_HOSTS = frozenset({PAYPAL_SANDBOX_HOST})
 PAYMENT_PROVIDER_MOCK = "mock"
 PAYMENT_PROVIDER_PAYPAL_SANDBOX = "paypal_sandbox"
 ALLOWED_PAYMENT_PROVIDERS = frozenset({PAYMENT_PROVIDER_MOCK, PAYMENT_PROVIDER_PAYPAL_SANDBOX})
+
+# Hosts that must never be used as the optional LLM narrative endpoint. The
+# Investigator only sends redacted evidence, but a configurable outbound URL is
+# still an SSRF surface. Literal private/link-local addresses are rejected; the
+# remaining residual risk is DNS rebinding (see docs/ai-investigator.md).
+_UNSAFE_LLM_HOSTNAMES = frozenset(
+    {
+        "localhost",
+        "localhost.localdomain",
+        "metadata",
+        "metadata.google.internal",
+        "instance-data",
+    }
+)
+_UNSAFE_LLM_HOST_SUFFIXES = (".localhost", ".local", ".internal")
+
+_ALLOWED_OIDC_ALGORITHMS = frozenset(
+    {
+        "RS256",
+        "RS384",
+        "RS512",
+        "PS256",
+        "PS384",
+        "PS512",
+        "ES256",
+        "ES384",
+        "ES512",
+        "EdDSA",
+    }
+)
+
+
+def is_safe_llm_base_url(value: str) -> bool:
+    """Return True when an LLM base URL is https and not an internal target."""
+    parts = urlsplit(value.strip())
+    if (
+        parts.scheme.lower() != "https"
+        or parts.username is not None
+        or parts.password is not None
+        or not parts.hostname
+    ):
+        return False
+    host = parts.hostname.lower().rstrip(".")
+    if host in _UNSAFE_LLM_HOSTNAMES or host.endswith(_UNSAFE_LLM_HOST_SUFFIXES):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return address.is_global and not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    )
 
 
 def has_valid_canary_secret_entropy(secret: str) -> bool:
@@ -173,6 +231,75 @@ class Settings(BaseSettings):
     EVIDENCE_HMAC_KEY: str = Field(
         default="",
         description="High-entropy HMAC key used to sign evidence chain checkpoints.",
+    )
+
+    # ------------------------------------------------------------------
+    # Person 6: AI Investigator configuration.
+    #
+    # The Investigator is read-only and advisory. Deterministic analysis and
+    # redaction always run. The LLM narrative is optional, disabled by default
+    # and never allowed to influence risk scoring, trust levels or payment
+    # routing.
+    # ------------------------------------------------------------------
+    AI_INVESTIGATION_ENABLED: bool = Field(
+        default=True,
+        description="Enable the read-only AI Investigator API and deterministic narrative.",
+    )
+    AI_LLM_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Enable the optional LLM narrative. Disabled by default; deterministic "
+            "fallback is always used when disabled or when the provider fails."
+        ),
+    )
+    AI_LLM_BASE_URL: str = Field(
+        default="",
+        description="OpenAI-compatible base URL for the optional narrative provider.",
+    )
+    AI_LLM_API_KEY: str = Field(
+        default="",
+        description="API key for the optional narrative provider. Never sent to clients.",
+    )
+    AI_LLM_MODEL: str = Field(
+        default="",
+        description="Model name used for the optional narrative.",
+    )
+    AI_LLM_TIMEOUT: float = Field(
+        default=10.0,
+        gt=0.0,
+        le=120.0,
+        description="Timeout in seconds for the optional LLM narrative request.",
+    )
+    AI_LLM_MAX_INPUT_CHARS: int = Field(
+        default=12000,
+        ge=1000,
+        le=100000,
+        description=(
+            "Structural cap on the redacted evidence JSON sent to the optional LLM. "
+            "Oversized projections are reduced field-by-field, never by cutting JSON."
+        ),
+    )
+    AI_LLM_MAX_RESPONSE_BYTES: int = Field(
+        default=65536,
+        ge=1024,
+        le=1_048_576,
+        description=(
+            "Maximum provider response body accepted by the optional LLM narrators. "
+            "Oversized responses are rejected before JSON parsing."
+        ),
+    )
+    AI_INVESTIGATION_MAX_EVENTS: int = Field(
+        default=100,
+        ge=1,
+        le=500,
+        description="Maximum redacted events included in an investigation bundle.",
+    )
+    INTENT_PROFILER_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Enable creation of advisory Intent Profiler snapshots. Reads remain "
+            "available for existing snapshots."
+        ),
     )
 
     # Database
@@ -442,6 +569,26 @@ class Settings(BaseSettings):
             return v
         return ["http://localhost:3000", "http://localhost:5173"]
 
+    @field_validator("OIDC_ALGORITHMS", mode="before")
+    @classmethod
+    def validate_oidc_algorithms(cls, value: object) -> list[str]:
+        if isinstance(value, str):
+            algorithms = [
+                item.strip() for item in value.replace(",", " ").split() if item.strip()
+            ]
+        elif isinstance(value, (list, tuple)):
+            algorithms = [str(item).strip() for item in value if str(item).strip()]
+        else:
+            raise ValueError("OIDC_ALGORITHMS must be a list of JWT signing algorithms.")
+
+        invalid = sorted(set(algorithms) - _ALLOWED_OIDC_ALGORITHMS)
+        if not algorithms or invalid:
+            raise ValueError(
+                "OIDC_ALGORITHMS must contain only asymmetric signing algorithms "
+                f"from {sorted(_ALLOWED_OIDC_ALGORITHMS)}; got invalid values: {invalid}."
+            )
+        return algorithms
+
     @model_validator(mode="after")
     def validate_production_guards(self) -> "Settings":
         if self.ENVIRONMENT.lower() == "production":
@@ -468,10 +615,18 @@ class Settings(BaseSettings):
                 raise ValueError("OIDC_ISSUER_URL is required when ENVIRONMENT is 'production'")
             if not self.OIDC_AUDIENCE.strip():
                 raise ValueError("OIDC_AUDIENCE is required when ENVIRONMENT is 'production'")
-            if not self.DEV_AUTH_TOKEN.strip():
-                raise ValueError(
-                    "DEV_AUTH_TOKEN must be explicitly set (cannot use default) in production"
-                )
+            for name in ("OIDC_ISSUER_URL", "OIDC_JWKS_URL"):
+                configured = str(getattr(self, name) or "").strip()
+                if not configured:
+                    continue
+                parts = urlsplit(configured)
+                if (
+                    parts.scheme.lower() != "https"
+                    or not parts.hostname
+                    or parts.username is not None
+                    or parts.password is not None
+                ):
+                    raise ValueError(f"{name} must be an https URL without embedded credentials.")
             # Production must reject the mock provider by default. A separate,
             # strongly controlled override is required if the product owner
             # explicitly authorizes mock operation in production.
@@ -489,6 +644,24 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "PAYPAL_WEBHOOK_ID is required in production when "
                     "PAYMENT_PROVIDER='paypal_sandbox'."
+                )
+
+        if self.AI_LLM_ENABLED:
+            missing = [
+                name
+                for name in ("AI_LLM_BASE_URL", "AI_LLM_API_KEY", "AI_LLM_MODEL")
+                if not str(getattr(self, name) or "").strip()
+            ]
+            if missing:
+                raise ValueError(
+                    "AI_LLM_ENABLED=true requires explicit configuration for: "
+                    f"{', '.join(missing)}. Leave AI_LLM_ENABLED=false to use only "
+                    "the deterministic narrative."
+                )
+            if not is_safe_llm_base_url(self.AI_LLM_BASE_URL):
+                raise ValueError(
+                    "AI_LLM_BASE_URL must be a public https origin without embedded "
+                    "credentials or private/loopback/link-local targets."
                 )
         return self
 

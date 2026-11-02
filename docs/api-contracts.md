@@ -339,6 +339,40 @@ Confirms permanent session revocation in response to an anomaly or canary securi
 - **Invariant**: Strictly audit-logged. Never re-enables a session or triggers a payout.
 - **Response** (200 OK): Returns new_status `"RESOLVED"` and action `"approved_revocation"`.
 
+### AI Investigator (read-only, advisory)
+
+- `POST /v1/incidents/{incident_id}/investigations` (Analyst/Admin) extracts
+  bounded, redacted deterministic evidence and persists an advisory bundle.
+  Request body: `{ "focus": "payout", "use_llm": true }` (both optional).
+- `GET /v1/incidents/{incident_id}/investigations` lists persisted
+  investigations for the incident (`page`, `page_size`).
+- `GET /v1/investigations/{investigation_id}` reads one persisted investigation.
+
+Responses include `findings`, `evidence` references, `recommendations`
+(`advisory_only=true`, `requires_human_approval=true`) and a `narrative` whose
+`generated_by` is `"deterministic"` or `"llm"`. Cross-tenant resources return
+HTTP 404. The Investigator never changes routing, risk scores, trust levels,
+sessions, access or payment execution. See `docs/ai-investigator.md`.
+
+### Intent Profiler (read-only, advisory)
+
+- `POST /v1/sessions/{session_id}/intent-profiles` (Analyst/Admin) creates an
+  immutable advisory profile from bounded derived session evidence. Request
+  body: `{ "use_llm": true }` (optional; the provider remains gated by
+  `AI_LLM_ENABLED`).
+- `GET /v1/sessions/{session_id}/intent-profiles` lists persisted profiles for
+  the session (`page`, `page_size`).
+- `GET /v1/intent-profiles/{profile_id}` reads one persisted profile.
+
+Profiles expose an ordinal `confidence` (`UNKNOWN`, `LOW`, `MEDIUM`, `HIGH`;
+never a probability), a primary and up to two secondary hypotheses, bounded
+`evidence` references, `confidence_basis`, `limitations`, and a `narrative`
+whose `generated_by` is `"deterministic"` or `"llm"`. Every response carries
+`advisory_only=true` and `requires_human_approval=true`. The LLM can rewrite
+prose only; it cannot change labels, confidence, evidence or enforcement.
+Cross-tenant resources return HTTP 404. Profiles never change risk scores,
+trust levels, routing, sessions, access or payment execution.
+
 ---
 
 ## 6. PayPal Webhook Endpoints

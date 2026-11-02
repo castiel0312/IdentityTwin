@@ -25,7 +25,7 @@ export function PageHeader({
         ) : null}
         <h1 className="editorial-title text-[2rem] sm:text-[2.6rem]">{title}</h1>
         {description ? (
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground sm:text-[0.9375rem]">{description}</p>
+          <div className="max-w-3xl text-sm leading-6 text-muted-foreground sm:text-[0.9375rem]">{description}</div>
         ) : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}

@@ -24,6 +24,8 @@ from app.models.evidence import (
 )
 from app.models.idempotency import IdempotencyRecord
 from app.models.incident import AnalystActionRecord, IncidentRecord
+from app.models.intent import IntentProfileRecord
+from app.models.investigation import InvestigationRecord
 from app.models.payout import PayoutRequestRecord
 from app.models.principal import Merchant, User
 from app.models.risk import RiskDecisionRecord
@@ -59,6 +61,8 @@ __all__ = [
     "RiskDecisionRecord",
     "PayoutRequestRecord",
     "IncidentRecord",
+    "IntentProfileRecord",
+    "InvestigationRecord",
     "AnalystActionRecord",
     "IdempotencyRecord",
     "StepUpChallenge",

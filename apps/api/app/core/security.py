@@ -1,13 +1,13 @@
+import time
 from collections.abc import Callable
 from enum import Enum
 from uuid import UUID
-import time
 
-from fastapi import Depends, Header, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
 import jwt
+from fastapi import Depends, Header
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -84,13 +84,17 @@ def _validate_jwt_token(token: str) -> dict:
         )
         return claims
     except jwt.ExpiredSignatureError:
-        raise AuthenticationRequiredException("JWT token has expired.")
+        raise AuthenticationRequiredException("JWT token has expired.") from None
     except jwt.InvalidAudienceError:
-        raise AuthenticationRequiredException("JWT token audience mismatch.")
+        raise AuthenticationRequiredException("JWT token audience mismatch.") from None
     except jwt.InvalidIssuerError:
-        raise AuthenticationRequiredException("JWT token issuer mismatch.")
+        raise AuthenticationRequiredException("JWT token issuer mismatch.") from None
     except jwt.InvalidTokenError as exc:
-        raise AuthenticationRequiredException(f"Invalid JWT token: {exc}")
+        raise AuthenticationRequiredException(f"Invalid JWT token: {exc}") from None
+    except Exception:
+        # JWKS discovery/fetch failures and malformed key material must fail
+        # closed without leaking provider internals or token contents.
+        raise AuthenticationRequiredException("Unable to validate JWT token.") from None
 
 
 def _extract_principal_from_claims(claims: dict) -> AuthenticatedPrincipal:
@@ -100,23 +104,31 @@ def _extract_principal_from_claims(claims: dict) -> AuthenticatedPrincipal:
     roles = claims.get(settings.OIDC_ROLE_CLAIM, [])
     merchant_id_str = claims.get(settings.OIDC_MERCHANT_CLAIM)
 
-    if not sub or not email:
-        raise AuthenticationRequiredException("JWT token missing required claims (sub, email).")
+    if not isinstance(sub, str) or not sub.strip():
+        raise AuthenticationRequiredException("JWT token missing required claim: sub")
+    if not isinstance(email, str) or not email.strip():
+        raise AuthenticationRequiredException("JWT token missing required claim: email")
+    if not isinstance(roles, list) or not all(isinstance(role, str) for role in roles):
+        raise AuthenticationRequiredException(
+            f"JWT token claim '{settings.OIDC_ROLE_CLAIM}' must be a list of strings."
+        )
 
-    # Determine role
+    normalized_roles = {role.strip().lower() for role in roles if role.strip()}
     role = RoleEnum.MERCHANT
-    if isinstance(roles, list) and "analyst" in roles:
-        role = RoleEnum.ANALYST
-    elif isinstance(roles, list) and "admin" in roles:
+    if RoleEnum.ADMIN.value in normalized_roles:
         role = RoleEnum.ADMIN
+    elif RoleEnum.ANALYST.value in normalized_roles:
+        role = RoleEnum.ANALYST
 
     # Parse merchant_id
     if not merchant_id_str:
         raise AuthenticationRequiredException(f"JWT token missing required claim: {settings.OIDC_MERCHANT_CLAIM}")
     try:
-        merchant_id = UUID(merchant_id_str)
-    except ValueError:
-        raise AuthenticationRequiredException(f"Invalid merchant_id in JWT token: {merchant_id_str}")
+        merchant_id = UUID(str(merchant_id_str))
+    except (TypeError, ValueError, AttributeError):
+        raise AuthenticationRequiredException(
+            f"Invalid merchant_id in JWT token: {merchant_id_str}"
+        ) from None
 
     # Parse user_id from sub
     try:
@@ -164,10 +176,9 @@ def get_current_principal(
 
     # Development-only authentication mechanism
     if settings.ALLOW_DEV_AUTH and settings.ENVIRONMENT.lower() == "development":
-        # Reject invalid/unknown tokens
-        if token not in ALLOWED_DEV_TOKENS and not (
-            token.startswith("dev-") or token == settings.DEV_AUTH_TOKEN
-        ):
+        # Only the explicitly provisioned development tokens are accepted.
+        # An arbitrary ``dev-*`` prefix must never grant merchant access.
+        if token not in ALLOWED_DEV_TOKENS:
             raise AuthenticationRequiredException("Provided bearer token is expired or invalid.")
 
         # Determine baseline role from token

@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { IntentProfiler } from "@/features/intent/intent-profiler";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDateTime, formatMoney, humanizeCode, relativeTime } from "@/lib/format";
@@ -49,7 +50,7 @@ export function SessionDetailPage() {
         <PageHeader
           eyebrow="Session investigation"
           title={identitySession.session_id}
-          description={<span className="flex flex-wrap items-center gap-2"><TrustBadge level={identitySession.trust_level} /><StatusBadge status={identitySession.status} /><RiskMeter score={identitySession.risk_score} /><Link to={`/identities/${identitySession.user_id}`} className="text-xs text-primary hover:underline">Identity {identitySession.user_id.slice(0, 8)}…</Link></span>}
+          description={<div className="flex flex-wrap items-center gap-2"><TrustBadge level={identitySession.trust_level} /><StatusBadge status={identitySession.status} /><RiskMeter score={identitySession.risk_score} /><Link to={`/identities/${identitySession.user_id}`} className="text-xs text-primary hover:underline">Identity {identitySession.user_id.slice(0, 8)}…</Link></div>}
           actions={<Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")} /> Refresh</Button>}
         />
       </div>
@@ -62,7 +63,7 @@ export function SessionDetailPage() {
       </div>
 
       <Tabs defaultValue="activity">
-        <TabsList className="flex h-auto flex-wrap"><TabsTrigger value="activity">Activity</TabsTrigger><TabsTrigger value="risk">Risk ledger</TabsTrigger><TabsTrigger value="sequences">Sequences</TabsTrigger><TabsTrigger value="twin">Twin & canaries</TabsTrigger></TabsList>
+        <TabsList className="flex h-auto flex-wrap"><TabsTrigger value="activity">Activity</TabsTrigger><TabsTrigger value="risk">Risk ledger</TabsTrigger><TabsTrigger value="sequences">Sequences</TabsTrigger><TabsTrigger value="twin">Twin & canaries</TabsTrigger><TabsTrigger value="intent">Intent profile</TabsTrigger></TabsList>
 
         <TabsContent value="activity" className="space-y-4">
           <div className="grid gap-4 xl:grid-cols-3">
@@ -168,6 +169,10 @@ export function SessionDetailPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="intent" className="space-y-4">
+          <IntentProfiler sessionId={identitySession.session_id} />
         </TabsContent>
       </Tabs>
 

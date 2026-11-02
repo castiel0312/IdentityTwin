@@ -253,6 +253,449 @@
         }
       }
     },
+    "/v1/reconciliation/payouts": {
+      "get": {
+        "tags": [
+          "Reconciliation (Admin)"
+        ],
+        "summary": "List reconciliation payouts for the authenticated merchant",
+        "description": "Administrative/analyst view of payouts and their automated reconciliation state. Scoped to the caller's merchant. No provider credentials or recipient details are returned.",
+        "operationId": "list_reconciliation_payouts_v1_reconciliation_payouts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by payout status",
+              "title": "Status"
+            },
+            "description": "Filter by payout status"
+          },
+          {
+            "name": "escalated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by escalation state",
+              "title": "Escalated"
+            },
+            "description": "Filter by escalation state"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reconciliation/stats": {
+      "get": {
+        "tags": [
+          "Reconciliation (Admin)"
+        ],
+        "summary": "Reconciliation metrics for the authenticated merchant",
+        "description": "Stuck-payout counts and reconciliation backlog for the analyst console.",
+        "operationId": "reconciliation_stats_v1_reconciliation_stats_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationStats"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reconciliation/payouts/{payout_id}/reconcile": {
+      "post": {
+        "tags": [
+          "Reconciliation (Admin)"
+        ],
+        "summary": "Trigger an immediate reconciliation for one payout",
+        "description": "On-demand reconciliation of a single payout against the payment provider. Uses the existing reconcile_payout() and is idempotent. Merchant-scoped.",
+        "operationId": "reconcile_one_payout_v1_reconciliation_payouts__payout_id__reconcile_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "payout_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Payout id to reconcile",
+              "title": "Payout Id"
+            },
+            "description": "Payout id to reconcile"
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualReconcileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reconciliation/payouts/{payout_id}/escalate": {
+      "post": {
+        "tags": [
+          "Reconciliation (Admin)"
+        ],
+        "summary": "Manually escalate a payout for analyst review",
+        "description": "Escalate a payout to manual review, halting all automated retries. Does not release reservations, resubmit, or delete idempotency records.",
+        "operationId": "escalate_payout_v1_reconciliation_payouts__payout_id__escalate_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "payout_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Payout id to escalate",
+              "title": "Payout Id"
+            },
+            "description": "Payout id to escalate"
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EscalateRequest",
+                "default": {
+                  "reason": "manual_escalation"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualReconcileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions": {
       "get": {
         "tags": [
@@ -2177,6 +2620,660 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/IncidentActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/intent-profiles": {
+      "post": {
+        "tags": [
+          "Intent Profiler"
+        ],
+        "summary": "Create an advisory intent profile (Analyst/Admin only)",
+        "description": "Builds and persists a bounded, merchant-scoped intent hypothesis from derived session evidence. The result is advisory only and never changes risk scores, trust levels, routing, access or payouts.",
+        "operationId": "create_intent_profile_v1_sessions__session_id__intent_profiles_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IntentProfileCreateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntentProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Intent Profiler"
+        ],
+        "summary": "List persisted intent profiles for a session",
+        "operationId": "list_intent_profiles_v1_sessions__session_id__intent_profiles_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntentProfileListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/intent-profiles/{profile_id}": {
+      "get": {
+        "tags": [
+          "Intent Profiler"
+        ],
+        "summary": "Read one persisted advisory intent profile",
+        "operationId": "get_intent_profile_v1_intent_profiles__profile_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntentProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/incidents/{incident_id}/investigations": {
+      "post": {
+        "tags": [
+          "AI Investigator"
+        ],
+        "summary": "Run a read-only AI investigation (Analyst/Admin only)",
+        "description": "Extracts deterministic, merchant-scoped evidence, applies redaction and produces an advisory investigation bundle. It never changes risk scores, trust levels, routing, access or payouts.",
+        "operationId": "create_investigation_v1_incidents__incident_id__investigations_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "incident_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Incident Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/InvestigationCreateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "AI Investigator"
+        ],
+        "summary": "List persisted investigations for an incident",
+        "operationId": "list_investigations_v1_incidents__incident_id__investigations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "incident_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Incident Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/investigations/{investigation_id}": {
+      "get": {
+        "tags": [
+          "AI Investigator"
+        ],
+        "summary": "Read one persisted investigation",
+        "operationId": "get_investigation_v1_investigations__investigation_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "investigation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Investigation Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationResponse"
                 }
               }
             }
@@ -4849,6 +5946,11 @@
         ],
         "summary": "Get Profile",
         "operationId": "get_profile_v1_honey_merchant_profile_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -4866,6 +5968,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -4898,6 +6048,11 @@
         ],
         "summary": "List Customers",
         "operationId": "list_customers_v1_honey_customers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -4915,6 +6070,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -4947,6 +6150,11 @@
         ],
         "summary": "Get Customer",
         "operationId": "get_customer_v1_honey_customers__customer_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "customer_id",
@@ -4973,6 +6181,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5005,6 +6261,11 @@
         ],
         "summary": "List Invoices",
         "operationId": "list_invoices_v1_honey_invoices_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5022,6 +6283,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5054,6 +6363,11 @@
         ],
         "summary": "Export Invoices",
         "operationId": "export_invoices_v1_honey_invoices_export_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5081,6 +6395,54 @@
               "type": "string",
               "default": "csv",
               "title": "Format"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5113,6 +6475,11 @@
         ],
         "summary": "Get Invoice",
         "operationId": "get_invoice_v1_honey_invoices__invoice_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "invoice_id",
@@ -5139,6 +6506,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5171,6 +6586,11 @@
         ],
         "summary": "List Transactions",
         "operationId": "list_transactions_v1_honey_transactions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5208,6 +6628,54 @@
               "type": "integer",
               "default": 50,
               "title": "Page Size"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5240,6 +6708,11 @@
         ],
         "summary": "List Payees",
         "operationId": "list_payees_v1_honey_payees_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5257,6 +6730,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5287,12 +6808,77 @@
         ],
         "summary": "Add Payee",
         "operationId": "add_payee_v1_honey_payees_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -5306,6 +6892,11 @@
         ],
         "summary": "List Payouts",
         "operationId": "list_payouts_v1_honey_payouts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5323,6 +6914,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5353,12 +6992,77 @@
         ],
         "summary": "Create Payout",
         "operationId": "create_payout_v1_honey_payouts_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -5372,6 +7076,11 @@
         ],
         "summary": "Get Payout",
         "operationId": "get_payout_v1_honey_payouts__payout_batch_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "payout_batch_id",
@@ -5398,6 +7107,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5430,6 +7187,11 @@
         ],
         "summary": "List Apps",
         "operationId": "list_apps_v1_honey_developer_apps_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5447,6 +7209,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5479,12 +7289,77 @@
         ],
         "summary": "Reveal Creds",
         "operationId": "reveal_creds_v1_honey_developer_credentials_reveal_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -5498,12 +7373,77 @@
         ],
         "summary": "Issue Access Token",
         "operationId": "issue_access_token_v1_honey_developer_token_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -5517,6 +7457,11 @@
         ],
         "summary": "Get Profile",
         "operationId": "get_profile_v1_merchant_merchant_info_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5534,6 +7479,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5566,6 +7559,11 @@
         ],
         "summary": "List Invoices",
         "operationId": "list_invoices_v2_invoicing_invoices_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5583,6 +7581,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5615,6 +7661,11 @@
         ],
         "summary": "Get Invoice",
         "operationId": "get_invoice_v2_invoicing_invoices__invoice_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "invoice_id",
@@ -5641,6 +7692,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5673,6 +7772,11 @@
         ],
         "summary": "List Transactions",
         "operationId": "list_transactions_v1_reporting_transactions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5711,6 +7815,54 @@
               "default": 50,
               "title": "Page Size"
             }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
           }
         ],
         "responses": {
@@ -5742,6 +7894,11 @@
         ],
         "summary": "List Payouts",
         "operationId": "list_payouts_v1_payments_payouts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -5759,6 +7916,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -5789,12 +7994,77 @@
         ],
         "summary": "Create Payout",
         "operationId": "create_payout_v1_payments_payouts_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -5808,6 +8078,11 @@
         ],
         "summary": "Get Payout",
         "operationId": "get_payout_v1_payments_payouts__payout_batch_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "payout_batch_id",
@@ -5834,6 +8109,54 @@
             "schema": {
               "type": "string",
               "title": "Identity Id"
+            }
+          },
+          {
+            "name": "X-Dev-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Role"
+            }
+          },
+          {
+            "name": "X-Dev-Merchant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-Merchant-Id"
+            }
+          },
+          {
+            "name": "X-Dev-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
             }
           }
         ],
@@ -6898,6 +9221,25 @@
         ],
         "title": "CapabilityView"
       },
+      "ConfidenceReason": {
+        "type": "string",
+        "enum": [
+          "NO_SUPPORTING_EVIDENCE",
+          "BASELINE_PROVISIONAL",
+          "BASELINE_MATURE",
+          "SINGLE_WEAK_SIGNAL",
+          "TWO_INDEPENDENT_SIGNALS",
+          "THREE_OR_MORE_INDEPENDENT_SIGNALS",
+          "HIGH_SPECIFICITY_SEQUENCE",
+          "CANARY_EVIDENCE",
+          "CONTAINMENT_EVIDENCE",
+          "REPEATED_CONTAINMENT_EVIDENCE",
+          "STRUCTURED_RISK_STATE_SEQUENCE",
+          "ABSENCE_OF_ANOMALY_IS_NOT_PROOF"
+        ],
+        "title": "ConfidenceReason",
+        "description": "Why the deterministic classifier selected a confidence band."
+      },
       "ErrorDetail": {
         "properties": {
           "code": {
@@ -6924,6 +9266,20 @@
           "message"
         ],
         "title": "ErrorDetail"
+      },
+      "EscalateRequest": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Reason",
+            "description": "Escalation reason",
+            "default": "manual_escalation"
+          }
+        },
+        "type": "object",
+        "title": "EscalateRequest"
       },
       "EventIngestRequest": {
         "properties": {
@@ -7142,6 +9498,72 @@
           "created_at"
         ],
         "title": "EvidenceEntryView"
+      },
+      "EvidenceReference": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "incident",
+              "session",
+              "risk_decision",
+              "payout",
+              "event",
+              "evidence_chain",
+              "canary"
+            ],
+            "title": "Source"
+          },
+          "ref_id": {
+            "type": "string",
+            "title": "Ref Id"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "evidence_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Seq"
+          },
+          "evidence_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref_id",
+          "summary"
+        ],
+        "title": "EvidenceReference"
       },
       "EvidenceSealDetailResponse": {
         "properties": {
@@ -8322,6 +10744,1062 @@
           "REJECTED"
         ],
         "title": "IncidentStatus"
+      },
+      "IntentAnalysis": {
+        "properties": {
+          "primary_intent": {
+            "$ref": "#/components/schemas/IntentHypothesis"
+          },
+          "secondary_intents": {
+            "items": {
+              "$ref": "#/components/schemas/IntentHypothesis"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "title": "Secondary Intents"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/IntentConfidence"
+          },
+          "confidence_basis": {
+            "items": {
+              "$ref": "#/components/schemas/ConfidenceReason"
+            },
+            "type": "array",
+            "title": "Confidence Basis"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/IntentEvidenceReference"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          },
+          "abstention_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 280
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Reason"
+          },
+          "signals": {
+            "$ref": "#/components/schemas/IntentSignals"
+          },
+          "advisory_only": {
+            "type": "boolean",
+            "const": true,
+            "title": "Advisory Only",
+            "default": true
+          },
+          "requires_human_approval": {
+            "type": "boolean",
+            "const": true,
+            "title": "Requires Human Approval",
+            "default": true
+          },
+          "classifier_version": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Classifier Version",
+            "default": "intent-classifier-v1"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "primary_intent",
+          "confidence",
+          "signals"
+        ],
+        "title": "IntentAnalysis",
+        "description": "Advisory classifier result. Confidence is ordinal, never probabilistic."
+      },
+      "IntentConfidence": {
+        "type": "string",
+        "enum": [
+          "UNKNOWN",
+          "LOW",
+          "MEDIUM",
+          "HIGH"
+        ],
+        "title": "IntentConfidence",
+        "description": "Ordinal confidence band. The profiler never emits a probability."
+      },
+      "IntentEvidenceReference": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/IntentEvidenceSource"
+          },
+          "ref_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Ref Id"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 280,
+            "minLength": 1,
+            "title": "Summary"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "signal_codes": {
+            "items": {
+              "$ref": "#/components/schemas/IntentSignalCode"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Signal Codes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "ref_id",
+          "summary"
+        ],
+        "title": "IntentEvidenceReference",
+        "description": "One bounded, human-readable reference to structured evidence."
+      },
+      "IntentEvidenceSource": {
+        "type": "string",
+        "enum": [
+          "session",
+          "event",
+          "risk_state",
+          "twin",
+          "payout",
+          "canary",
+          "incident"
+        ],
+        "title": "IntentEvidenceSource",
+        "description": "Structured source of one evidence reference."
+      },
+      "IntentHypothesis": {
+        "type": "string",
+        "enum": [
+          "SUSPECTED_CONTAINMENT_PROBING",
+          "SUSPECTED_ACCOUNT_TAKEOVER",
+          "SUSPECTED_PAYEE_REDIRECTION",
+          "SUSPECTED_VELOCITY_ABUSE",
+          "ROUTINE_PAYMENT_OPERATION",
+          "UNKNOWN_INSUFFICIENT_EVIDENCE"
+        ],
+        "title": "IntentHypothesis",
+        "description": "Advisory session-intent hypotheses supported by available signals."
+      },
+      "IntentNarrative": {
+        "properties": {
+          "headline": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Headline"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1600,
+            "minLength": 1,
+            "title": "Summary"
+          },
+          "uncertainty_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Uncertainty Notes"
+          },
+          "generated_by": {
+            "type": "string",
+            "enum": [
+              "deterministic",
+              "llm"
+            ],
+            "title": "Generated By",
+            "default": "deterministic"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "headline",
+          "summary"
+        ],
+        "title": "IntentNarrative",
+        "description": "Narrative explanation only; it cannot alter classifier output."
+      },
+      "IntentProfileBundle": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Merchant Id"
+          },
+          "analysis": {
+            "$ref": "#/components/schemas/IntentAnalysis"
+          },
+          "narrative": {
+            "$ref": "#/components/schemas/IntentNarrative"
+          },
+          "redaction_applied": {
+            "type": "boolean",
+            "title": "Redaction Applied",
+            "default": true
+          },
+          "ai_used": {
+            "type": "boolean",
+            "title": "Ai Used",
+            "default": false
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "merchant_id",
+          "analysis",
+          "narrative"
+        ],
+        "title": "IntentProfileBundle"
+      },
+      "IntentProfileCreateRequest": {
+        "properties": {
+          "use_llm": {
+            "type": "boolean",
+            "title": "Use Llm",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "IntentProfileCreateRequest"
+      },
+      "IntentProfileListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IntentProfileResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "IntentProfileListResponse"
+      },
+      "IntentProfileResponse": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Profile Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Merchant Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IntentProfileStatus"
+          },
+          "ai_used": {
+            "type": "boolean",
+            "title": "Ai Used"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "bundle": {
+            "$ref": "#/components/schemas/IntentProfileBundle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "session_id",
+          "merchant_id",
+          "status",
+          "ai_used",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "bundle"
+        ],
+        "title": "IntentProfileResponse"
+      },
+      "IntentProfileStatus": {
+        "type": "string",
+        "enum": [
+          "COMPLETE",
+          "FALLBACK"
+        ],
+        "title": "IntentProfileStatus"
+      },
+      "IntentSignalCode": {
+        "type": "string",
+        "enum": [
+          "EVENT_AUTH",
+          "EVENT_MFA",
+          "EVENT_SECURITY_ANOMALY",
+          "EVENT_NAVIGATION",
+          "EVENT_HEARTBEAT",
+          "EVENT_PAYEE_REGISTRATION",
+          "EVENT_PAYOUT",
+          "NEW_DEVICE",
+          "NEW_LOCATION",
+          "UNUSUAL_TIME",
+          "NEW_PAYEE",
+          "LARGE_PAYOUT",
+          "PAYEE_ADD_THEN_PAYOUT",
+          "PAYEE_REGISTRATION_VELOCITY",
+          "PAYOUT_VELOCITY",
+          "CANARY_INTERACTION",
+          "DECOY_ROUTING",
+          "BLOCKED_PAYOUT",
+          "SESSION_REVOKED",
+          "BASELINE_MATURE",
+          "BASELINE_PROVISIONAL",
+          "NO_EVENTS",
+          "UNKNOWN_EVENT_TYPE"
+        ],
+        "title": "IntentSignalCode",
+        "description": "Bounded, explainable signal names used by the classifier."
+      },
+      "IntentSignals": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "event_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Event Count",
+            "default": 0
+          },
+          "unknown_event_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unknown Event Count",
+            "default": 0
+          },
+          "auth_event_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Auth Event Count",
+            "default": 0
+          },
+          "mfa_event_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mfa Event Count",
+            "default": 0
+          },
+          "security_anomaly_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Security Anomaly Count",
+            "default": 0
+          },
+          "pageview_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pageview Count",
+            "default": 0
+          },
+          "heartbeat_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Heartbeat Count",
+            "default": 0
+          },
+          "payee_registration_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Payee Registration Count",
+            "default": 0
+          },
+          "payout_event_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Payout Event Count",
+            "default": 0
+          },
+          "has_new_device": {
+            "type": "boolean",
+            "title": "Has New Device",
+            "default": false
+          },
+          "has_new_location": {
+            "type": "boolean",
+            "title": "Has New Location",
+            "default": false
+          },
+          "has_unusual_time": {
+            "type": "boolean",
+            "title": "Has Unusual Time",
+            "default": false
+          },
+          "has_new_payee": {
+            "type": "boolean",
+            "title": "Has New Payee",
+            "default": false
+          },
+          "has_large_payout": {
+            "type": "boolean",
+            "title": "Has Large Payout",
+            "default": false
+          },
+          "has_payee_add_then_payout": {
+            "type": "boolean",
+            "title": "Has Payee Add Then Payout",
+            "default": false
+          },
+          "has_payee_registration_velocity": {
+            "type": "boolean",
+            "title": "Has Payee Registration Velocity",
+            "default": false
+          },
+          "has_payout_velocity": {
+            "type": "boolean",
+            "title": "Has Payout Velocity",
+            "default": false
+          },
+          "has_canary_interaction": {
+            "type": "boolean",
+            "title": "Has Canary Interaction",
+            "default": false
+          },
+          "has_decoy_routing": {
+            "type": "boolean",
+            "title": "Has Decoy Routing",
+            "default": false
+          },
+          "blocked_payout_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Blocked Payout Count",
+            "default": 0
+          },
+          "session_trust_level": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Session Trust Level",
+            "default": "NORMAL"
+          },
+          "session_status": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Session Status",
+            "default": "active"
+          },
+          "session_risk_score": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Session Risk Score",
+            "default": 0.0
+          },
+          "session_revoked": {
+            "type": "boolean",
+            "title": "Session Revoked",
+            "default": false
+          },
+          "baseline_ready": {
+            "type": "boolean",
+            "title": "Baseline Ready",
+            "default": false
+          },
+          "baseline_provisional": {
+            "type": "boolean",
+            "title": "Baseline Provisional",
+            "default": true
+          },
+          "hour_baseline_ready": {
+            "type": "boolean",
+            "title": "Hour Baseline Ready",
+            "default": false
+          },
+          "has_payout_activity": {
+            "type": "boolean",
+            "title": "Has Payout Activity",
+            "default": false
+          },
+          "max_payee_registrations_in_window": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Max Payee Registrations In Window",
+            "default": 0
+          },
+          "max_payouts_in_window": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Max Payouts In Window",
+            "default": 0
+          },
+          "first_event_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Event At"
+          },
+          "last_event_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event At"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/IntentEvidenceReference"
+            },
+            "type": "array",
+            "title": "Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "IntentSignals",
+        "description": "Deterministic, explainable signal set derived from bounded source data."
+      },
+      "InvestigationBundle": {
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Incident Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Merchant Id"
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focus"
+          },
+          "risk_score": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Risk Score"
+          },
+          "trust_level": {
+            "type": "string",
+            "title": "Trust Level"
+          },
+          "trigger_reason": {
+            "type": "string",
+            "title": "Trigger Reason"
+          },
+          "incident_status": {
+            "type": "string",
+            "title": "Incident Status"
+          },
+          "evidence_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Evidence Counts"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationFinding"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReference"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationRecommendation"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "narrative": {
+            "$ref": "#/components/schemas/InvestigationNarrative"
+          },
+          "redaction_applied": {
+            "type": "boolean",
+            "title": "Redaction Applied",
+            "default": true
+          },
+          "ai_used": {
+            "type": "boolean",
+            "title": "Ai Used",
+            "default": false
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "incident_id",
+          "merchant_id",
+          "risk_score",
+          "trust_level",
+          "trigger_reason",
+          "incident_status",
+          "narrative"
+        ],
+        "title": "InvestigationBundle"
+      },
+      "InvestigationCreateRequest": {
+        "properties": {
+          "focus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focus",
+            "description": "Optional analyst focus. Recorded in the bundle; never used to override routing."
+          },
+          "use_llm": {
+            "type": "boolean",
+            "title": "Use Llm",
+            "description": "Request an LLM narrative when the deployment enables it. Deterministic analysis and fallback narrative always run. The LLM never scores or routes.",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "InvestigationCreateRequest"
+      },
+      "InvestigationFinding": {
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "title": "Finding Id"
+          },
+          "finding_type": {
+            "$ref": "#/components/schemas/InvestigationFindingType"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReference"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "deterministic": {
+            "type": "boolean",
+            "title": "Deterministic",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "finding_id",
+          "finding_type",
+          "title",
+          "severity",
+          "explanation"
+        ],
+        "title": "InvestigationFinding"
+      },
+      "InvestigationFindingType": {
+        "type": "string",
+        "enum": [
+          "CANARY_INTERACTION",
+          "BLOCKED_PAYOUT",
+          "DECOY_CONTAINMENT",
+          "HIGH_RISK_DECISION",
+          "NEW_DEVICE",
+          "NEW_LOCATION",
+          "UNUSUAL_TIME",
+          "NEW_PAYEE",
+          "LARGE_PAYOUT",
+          "NEW_PAYEE_LARGE_PAYOUT",
+          "PAYEE_ADD_THEN_PAYOUT",
+          "SESSION_REVOKED",
+          "EVIDENCE_INTEGRITY"
+        ],
+        "title": "InvestigationFindingType"
+      },
+      "InvestigationListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "InvestigationListResponse"
+      },
+      "InvestigationNarrative": {
+        "properties": {
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "why_suspicious": {
+            "type": "string",
+            "title": "Why Suspicious"
+          },
+          "uncertainty_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Uncertainty Notes"
+          },
+          "generated_by": {
+            "type": "string",
+            "enum": [
+              "deterministic",
+              "llm"
+            ],
+            "title": "Generated By",
+            "default": "deterministic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "headline",
+          "summary",
+          "why_suspicious"
+        ],
+        "title": "InvestigationNarrative"
+      },
+      "InvestigationRecommendation": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority",
+            "default": "MEDIUM"
+          },
+          "advisory_only": {
+            "type": "boolean",
+            "title": "Advisory Only",
+            "default": true
+          },
+          "requires_human_approval": {
+            "type": "boolean",
+            "title": "Requires Human Approval",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "rationale"
+        ],
+        "title": "InvestigationRecommendation"
+      },
+      "InvestigationResponse": {
+        "properties": {
+          "investigation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Investigation Id"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Incident Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Merchant Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/InvestigationStatus"
+          },
+          "ai_used": {
+            "type": "boolean",
+            "title": "Ai Used"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "bundle": {
+            "$ref": "#/components/schemas/InvestigationBundle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "investigation_id",
+          "incident_id",
+          "merchant_id",
+          "status",
+          "ai_used",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "bundle"
+        ],
+        "title": "InvestigationResponse"
+      },
+      "InvestigationStatus": {
+        "type": "string",
+        "enum": [
+          "COMPLETE",
+          "FALLBACK"
+        ],
+        "title": "InvestigationStatus"
+      },
+      "ManualReconcileResponse": {
+        "properties": {
+          "payout_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Payout Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "reconciled": {
+            "type": "boolean",
+            "title": "Reconciled",
+            "description": "Whether the payout reached a terminal state",
+            "default": true
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "payout_id",
+          "status",
+          "message"
+        ],
+        "title": "ManualReconcileResponse"
       },
       "MerchantView": {
         "properties": {
@@ -9519,6 +12997,190 @@
           "title"
         ],
         "title": "RecentActivityItem"
+      },
+      "ReconciliationListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationPayoutSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "ReconciliationListResponse"
+      },
+      "ReconciliationPayoutSummary": {
+        "properties": {
+          "payout_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Payout Id"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Merchant Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Current payout state-machine status"
+          },
+          "provider_batch_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Batch Id",
+            "description": "Provider batch id, only present when a provider reference exists"
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name"
+          },
+          "reconciliation_attempts": {
+            "type": "integer",
+            "title": "Reconciliation Attempts",
+            "description": "Number of automated reconciliation attempts made",
+            "default": 0
+          },
+          "last_reconciled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reconciled At"
+          },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
+          "escalation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "amount": {
+            "type": "number",
+            "title": "Amount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "payout_id",
+          "merchant_id",
+          "status",
+          "created_at",
+          "amount"
+        ],
+        "title": "ReconciliationPayoutSummary",
+        "description": "Administrative view of a payout's reconciliation state.\n\nDeliberately excludes sensitive recipient information and provider\ncredentials. Scoped to a single merchant."
+      },
+      "ReconciliationStats": {
+        "properties": {
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Merchant Id"
+          },
+          "total_unresolved": {
+            "type": "integer",
+            "title": "Total Unresolved",
+            "description": "Payouts still pending or processing and not escalated",
+            "default": 0
+          },
+          "total_escalated": {
+            "type": "integer",
+            "title": "Total Escalated",
+            "description": "Payouts escalated to manual review",
+            "default": 0
+          },
+          "stuck_payouts": {
+            "type": "integer",
+            "title": "Stuck Payouts",
+            "description": "Unresolved payouts older than the stuck threshold (30 minutes)",
+            "default": 0
+          },
+          "total_pending_retry": {
+            "type": "integer",
+            "title": "Total Pending Retry",
+            "description": "Payouts awaiting their next automated retry",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "merchant_id"
+        ],
+        "title": "ReconciliationStats",
+        "description": "Stuck-payout and reconciliation metrics for an analyst console."
       },
       "RiskBucket": {
         "properties": {

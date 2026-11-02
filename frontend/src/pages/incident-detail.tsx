@@ -9,6 +9,8 @@ import { DetailLoading } from "@/components/common/loading-state";
 import { PageHeader } from "@/components/common/page-header";
 import { RiskMeter } from "@/components/common/risk-meter";
 import { RiskScoreRing } from "@/components/common/risk-score-ring";
+import { IntentProfiler } from "@/features/intent/intent-profiler";
+import { AiInvestigator } from "@/features/incidents/ai-investigator";
 import { IncidentActions } from "@/features/incidents/incident-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,7 +41,7 @@ export function IncidentDetailPage() {
         <PageHeader
           eyebrow="Incident review"
           title={incident.title}
-          description={<span className="flex flex-wrap items-center gap-2"><SeverityBadge severity={incident.severity} /><StatusBadge status={incident.status} /><RiskMeter score={incident.risk_score} /><span className="font-mono text-[11px] text-muted-foreground">{incident.incident_id}</span></span>}
+          description={<div className="flex flex-wrap items-center gap-2"><SeverityBadge severity={incident.severity} /><StatusBadge status={incident.status} /><RiskMeter score={incident.risk_score} /><span className="font-mono text-[11px] text-muted-foreground">{incident.incident_id}</span></div>}
           actions={<Button variant="outline" size="sm" onClick={() => { void incidentQuery.refetch(); void sealQuery.refetch(); void timelineQuery.refetch(); void traceQuery.refetch(); }} disabled={incidentQuery.isFetching || sealQuery.isFetching}><RefreshCw className={cn("h-3.5 w-3.5", incidentQuery.isFetching && "animate-spin")} /> Refresh</Button>}
         />
       </div>
@@ -65,6 +67,10 @@ export function IncidentDetailPage() {
           </Card>
 
           <IncidentActions incidentId={incidentId} />
+
+          <AiInvestigator incidentId={incidentId} />
+
+          {incident.session_id ? <IntentProfiler sessionId={incident.session_id} /> : null}
 
           <Card>
             <CardHeader><CardTitle>Evidence timeline</CardTitle><CardDescription>Chain entries linked to this incident's session. Timestamps and hashes are as recorded.</CardDescription></CardHeader>

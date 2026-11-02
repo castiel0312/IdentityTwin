@@ -81,6 +81,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reconciliation/payouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List reconciliation payouts for the authenticated merchant
+         * @description Administrative/analyst view of payouts and their automated reconciliation state. Scoped to the caller's merchant. No provider credentials or recipient details are returned.
+         */
+        get: operations["list_reconciliation_payouts_v1_reconciliation_payouts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reconciliation/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reconciliation metrics for the authenticated merchant
+         * @description Stuck-payout counts and reconciliation backlog for the analyst console.
+         */
+        get: operations["reconciliation_stats_v1_reconciliation_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reconciliation/payouts/{payout_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger an immediate reconciliation for one payout
+         * @description On-demand reconciliation of a single payout against the payment provider. Uses the existing reconcile_payout() and is idempotent. Merchant-scoped.
+         */
+        post: operations["reconcile_one_payout_v1_reconciliation_payouts__payout_id__reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reconciliation/payouts/{payout_id}/escalate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manually escalate a payout for analyst review
+         * @description Escalate a payout to manual review, halting all automated retries. Does not release reservations, resubmit, or delete idempotency records.
+         */
+        post: operations["escalate_payout_v1_reconciliation_payouts__payout_id__escalate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions": {
         parameters: {
             query?: never;
@@ -345,6 +425,82 @@ export interface paths {
          * @description Requires analyst/admin credentials and merchant domain ownership. Records the audit trail confirming session isolation and permanent revocation. Guaranteed to never re-enable a session or execute a payout.
          */
         post: operations["approve_revocation_v1_incidents__incident_id__approve_revocation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/intent-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List persisted intent profiles for a session */
+        get: operations["list_intent_profiles_v1_sessions__session_id__intent_profiles_get"];
+        put?: never;
+        /**
+         * Create an advisory intent profile (Analyst/Admin only)
+         * @description Builds and persists a bounded, merchant-scoped intent hypothesis from derived session evidence. The result is advisory only and never changes risk scores, trust levels, routing, access or payouts.
+         */
+        post: operations["create_intent_profile_v1_sessions__session_id__intent_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/intent-profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one persisted advisory intent profile */
+        get: operations["get_intent_profile_v1_intent_profiles__profile_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/{incident_id}/investigations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List persisted investigations for an incident */
+        get: operations["list_investigations_v1_incidents__incident_id__investigations_get"];
+        put?: never;
+        /**
+         * Run a read-only AI investigation (Analyst/Admin only)
+         * @description Extracts deterministic, merchant-scoped evidence, applies redaction and produces an advisory investigation bundle. It never changes risk scores, trust levels, routing, access or payouts.
+         */
+        post: operations["create_investigation_v1_incidents__incident_id__investigations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/investigations/{investigation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one persisted investigation */
+        get: operations["get_investigation_v1_investigations__investigation_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1715,6 +1871,12 @@ export interface components {
             /** Detail */
             detail: string;
         };
+        /**
+         * ConfidenceReason
+         * @description Why the deterministic classifier selected a confidence band.
+         * @enum {string}
+         */
+        ConfidenceReason: "NO_SUPPORTING_EVIDENCE" | "BASELINE_PROVISIONAL" | "BASELINE_MATURE" | "SINGLE_WEAK_SIGNAL" | "TWO_INDEPENDENT_SIGNALS" | "THREE_OR_MORE_INDEPENDENT_SIGNALS" | "HIGH_SPECIFICITY_SEQUENCE" | "CANARY_EVIDENCE" | "CONTAINMENT_EVIDENCE" | "REPEATED_CONTAINMENT_EVIDENCE" | "STRUCTURED_RISK_STATE_SEQUENCE" | "ABSENCE_OF_ANOMALY_IS_NOT_PROOF";
         /** ErrorDetail */
         ErrorDetail: {
             /**
@@ -1734,6 +1896,15 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        /** EscalateRequest */
+        EscalateRequest: {
+            /**
+             * Reason
+             * @description Escalation reason
+             * @default manual_escalation
+             */
+            reason: string;
         };
         /** EventIngestRequest */
         EventIngestRequest: {
@@ -1850,6 +2021,24 @@ export interface components {
             payload?: {
                 [key: string]: unknown;
             };
+        };
+        /** EvidenceReference */
+        EvidenceReference: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "incident" | "session" | "risk_decision" | "payout" | "event" | "evidence_chain" | "canary";
+            /** Ref Id */
+            ref_id: string;
+            /** Summary */
+            summary: string;
+            /** Occurred At */
+            occurred_at?: string | null;
+            /** Evidence Seq */
+            evidence_seq?: number | null;
+            /** Evidence Hash */
+            evidence_hash?: string | null;
         };
         /** EvidenceSealDetailResponse */
         EvidenceSealDetailResponse: {
@@ -2336,6 +2525,558 @@ export interface components {
          * @enum {string}
          */
         IncidentStatus: "OPEN" | "UNDER_REVIEW" | "APPROVED" | "RESOLVED" | "REJECTED";
+        /**
+         * IntentAnalysis
+         * @description Advisory classifier result. Confidence is ordinal, never probabilistic.
+         */
+        IntentAnalysis: {
+            primary_intent: components["schemas"]["IntentHypothesis"];
+            /** Secondary Intents */
+            secondary_intents?: components["schemas"]["IntentHypothesis"][];
+            confidence: components["schemas"]["IntentConfidence"];
+            /** Confidence Basis */
+            confidence_basis?: components["schemas"]["ConfidenceReason"][];
+            /** Evidence */
+            evidence?: components["schemas"]["IntentEvidenceReference"][];
+            /** Limitations */
+            limitations?: string[];
+            /** Abstention Reason */
+            abstention_reason?: string | null;
+            signals: components["schemas"]["IntentSignals"];
+            /**
+             * Advisory Only
+             * @default true
+             * @constant
+             */
+            advisory_only: true;
+            /**
+             * Requires Human Approval
+             * @default true
+             * @constant
+             */
+            requires_human_approval: true;
+            /**
+             * Classifier Version
+             * @default intent-classifier-v1
+             */
+            classifier_version: string;
+        };
+        /**
+         * IntentConfidence
+         * @description Ordinal confidence band. The profiler never emits a probability.
+         * @enum {string}
+         */
+        IntentConfidence: "UNKNOWN" | "LOW" | "MEDIUM" | "HIGH";
+        /**
+         * IntentEvidenceReference
+         * @description One bounded, human-readable reference to structured evidence.
+         */
+        IntentEvidenceReference: {
+            source: components["schemas"]["IntentEvidenceSource"];
+            /** Ref Id */
+            ref_id: string;
+            /** Summary */
+            summary: string;
+            /** Occurred At */
+            occurred_at?: string | null;
+            /** Signal Codes */
+            signal_codes?: components["schemas"]["IntentSignalCode"][];
+        };
+        /**
+         * IntentEvidenceSource
+         * @description Structured source of one evidence reference.
+         * @enum {string}
+         */
+        IntentEvidenceSource: "session" | "event" | "risk_state" | "twin" | "payout" | "canary" | "incident";
+        /**
+         * IntentHypothesis
+         * @description Advisory session-intent hypotheses supported by available signals.
+         * @enum {string}
+         */
+        IntentHypothesis: "SUSPECTED_CONTAINMENT_PROBING" | "SUSPECTED_ACCOUNT_TAKEOVER" | "SUSPECTED_PAYEE_REDIRECTION" | "SUSPECTED_VELOCITY_ABUSE" | "ROUTINE_PAYMENT_OPERATION" | "UNKNOWN_INSUFFICIENT_EVIDENCE";
+        /**
+         * IntentNarrative
+         * @description Narrative explanation only; it cannot alter classifier output.
+         */
+        IntentNarrative: {
+            /** Headline */
+            headline: string;
+            /** Summary */
+            summary: string;
+            /** Uncertainty Notes */
+            uncertainty_notes?: string[];
+            /**
+             * Generated By
+             * @default deterministic
+             * @enum {string}
+             */
+            generated_by: "deterministic" | "llm";
+        };
+        /** IntentProfileBundle */
+        IntentProfileBundle: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Merchant Id
+             * Format: uuid
+             */
+            merchant_id: string;
+            analysis: components["schemas"]["IntentAnalysis"];
+            narrative: components["schemas"]["IntentNarrative"];
+            /**
+             * Redaction Applied
+             * @default true
+             */
+            redaction_applied: boolean;
+            /**
+             * Ai Used
+             * @default false
+             */
+            ai_used: boolean;
+            /** Model Name */
+            model_name?: string | null;
+        };
+        /** IntentProfileCreateRequest */
+        IntentProfileCreateRequest: {
+            /**
+             * Use Llm
+             * @default false
+             */
+            use_llm: boolean;
+        };
+        /** IntentProfileListResponse */
+        IntentProfileListResponse: {
+            /** Items */
+            items: components["schemas"]["IntentProfileResponse"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
+        /** IntentProfileResponse */
+        IntentProfileResponse: {
+            /**
+             * Profile Id
+             * Format: uuid
+             */
+            profile_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Merchant Id
+             * Format: uuid
+             */
+            merchant_id: string;
+            status: components["schemas"]["IntentProfileStatus"];
+            /** Ai Used */
+            ai_used: boolean;
+            /** Model Name */
+            model_name?: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            bundle: components["schemas"]["IntentProfileBundle"];
+        };
+        /**
+         * IntentProfileStatus
+         * @enum {string}
+         */
+        IntentProfileStatus: "COMPLETE" | "FALLBACK";
+        /**
+         * IntentSignalCode
+         * @description Bounded, explainable signal names used by the classifier.
+         * @enum {string}
+         */
+        IntentSignalCode: "EVENT_AUTH" | "EVENT_MFA" | "EVENT_SECURITY_ANOMALY" | "EVENT_NAVIGATION" | "EVENT_HEARTBEAT" | "EVENT_PAYEE_REGISTRATION" | "EVENT_PAYOUT" | "NEW_DEVICE" | "NEW_LOCATION" | "UNUSUAL_TIME" | "NEW_PAYEE" | "LARGE_PAYOUT" | "PAYEE_ADD_THEN_PAYOUT" | "PAYEE_REGISTRATION_VELOCITY" | "PAYOUT_VELOCITY" | "CANARY_INTERACTION" | "DECOY_ROUTING" | "BLOCKED_PAYOUT" | "SESSION_REVOKED" | "BASELINE_MATURE" | "BASELINE_PROVISIONAL" | "NO_EVENTS" | "UNKNOWN_EVENT_TYPE";
+        /**
+         * IntentSignals
+         * @description Deterministic, explainable signal set derived from bounded source data.
+         */
+        IntentSignals: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Event Count
+             * @default 0
+             */
+            event_count: number;
+            /**
+             * Unknown Event Count
+             * @default 0
+             */
+            unknown_event_count: number;
+            /**
+             * Auth Event Count
+             * @default 0
+             */
+            auth_event_count: number;
+            /**
+             * Mfa Event Count
+             * @default 0
+             */
+            mfa_event_count: number;
+            /**
+             * Security Anomaly Count
+             * @default 0
+             */
+            security_anomaly_count: number;
+            /**
+             * Pageview Count
+             * @default 0
+             */
+            pageview_count: number;
+            /**
+             * Heartbeat Count
+             * @default 0
+             */
+            heartbeat_count: number;
+            /**
+             * Payee Registration Count
+             * @default 0
+             */
+            payee_registration_count: number;
+            /**
+             * Payout Event Count
+             * @default 0
+             */
+            payout_event_count: number;
+            /**
+             * Has New Device
+             * @default false
+             */
+            has_new_device: boolean;
+            /**
+             * Has New Location
+             * @default false
+             */
+            has_new_location: boolean;
+            /**
+             * Has Unusual Time
+             * @default false
+             */
+            has_unusual_time: boolean;
+            /**
+             * Has New Payee
+             * @default false
+             */
+            has_new_payee: boolean;
+            /**
+             * Has Large Payout
+             * @default false
+             */
+            has_large_payout: boolean;
+            /**
+             * Has Payee Add Then Payout
+             * @default false
+             */
+            has_payee_add_then_payout: boolean;
+            /**
+             * Has Payee Registration Velocity
+             * @default false
+             */
+            has_payee_registration_velocity: boolean;
+            /**
+             * Has Payout Velocity
+             * @default false
+             */
+            has_payout_velocity: boolean;
+            /**
+             * Has Canary Interaction
+             * @default false
+             */
+            has_canary_interaction: boolean;
+            /**
+             * Has Decoy Routing
+             * @default false
+             */
+            has_decoy_routing: boolean;
+            /**
+             * Blocked Payout Count
+             * @default 0
+             */
+            blocked_payout_count: number;
+            /**
+             * Session Trust Level
+             * @default NORMAL
+             */
+            session_trust_level: string;
+            /**
+             * Session Status
+             * @default active
+             */
+            session_status: string;
+            /**
+             * Session Risk Score
+             * @default 0
+             */
+            session_risk_score: number;
+            /**
+             * Session Revoked
+             * @default false
+             */
+            session_revoked: boolean;
+            /**
+             * Baseline Ready
+             * @default false
+             */
+            baseline_ready: boolean;
+            /**
+             * Baseline Provisional
+             * @default true
+             */
+            baseline_provisional: boolean;
+            /**
+             * Hour Baseline Ready
+             * @default false
+             */
+            hour_baseline_ready: boolean;
+            /**
+             * Has Payout Activity
+             * @default false
+             */
+            has_payout_activity: boolean;
+            /**
+             * Max Payee Registrations In Window
+             * @default 0
+             */
+            max_payee_registrations_in_window: number;
+            /**
+             * Max Payouts In Window
+             * @default 0
+             */
+            max_payouts_in_window: number;
+            /** First Event At */
+            first_event_at?: string | null;
+            /** Last Event At */
+            last_event_at?: string | null;
+            /** Evidence */
+            evidence?: components["schemas"]["IntentEvidenceReference"][];
+        };
+        /** InvestigationBundle */
+        InvestigationBundle: {
+            /**
+             * Incident Id
+             * Format: uuid
+             */
+            incident_id: string;
+            /** Session Id */
+            session_id?: string | null;
+            /**
+             * Merchant Id
+             * Format: uuid
+             */
+            merchant_id: string;
+            /** Focus */
+            focus?: string | null;
+            /** Risk Score */
+            risk_score: number;
+            /** Trust Level */
+            trust_level: string;
+            /** Trigger Reason */
+            trigger_reason: string;
+            /** Incident Status */
+            incident_status: string;
+            /** Evidence Counts */
+            evidence_counts?: {
+                [key: string]: number;
+            };
+            /** Findings */
+            findings?: components["schemas"]["InvestigationFinding"][];
+            /** Evidence */
+            evidence?: components["schemas"]["EvidenceReference"][];
+            /** Recommendations */
+            recommendations?: components["schemas"]["InvestigationRecommendation"][];
+            narrative: components["schemas"]["InvestigationNarrative"];
+            /**
+             * Redaction Applied
+             * @default true
+             */
+            redaction_applied: boolean;
+            /**
+             * Ai Used
+             * @default false
+             */
+            ai_used: boolean;
+            /** Model Name */
+            model_name?: string | null;
+            /** Limitations */
+            limitations?: string[];
+        };
+        /** InvestigationCreateRequest */
+        InvestigationCreateRequest: {
+            /**
+             * Focus
+             * @description Optional analyst focus. Recorded in the bundle; never used to override routing.
+             */
+            focus?: string | null;
+            /**
+             * Use Llm
+             * @description Request an LLM narrative when the deployment enables it. Deterministic analysis and fallback narrative always run. The LLM never scores or routes.
+             * @default true
+             */
+            use_llm: boolean;
+        };
+        /** InvestigationFinding */
+        InvestigationFinding: {
+            /** Finding Id */
+            finding_id: string;
+            finding_type: components["schemas"]["InvestigationFindingType"];
+            /** Title */
+            title: string;
+            /** Severity */
+            severity: string;
+            /** Explanation */
+            explanation: string;
+            /** Evidence */
+            evidence?: components["schemas"]["EvidenceReference"][];
+            /**
+             * Deterministic
+             * @default true
+             */
+            deterministic: boolean;
+        };
+        /**
+         * InvestigationFindingType
+         * @enum {string}
+         */
+        InvestigationFindingType: "CANARY_INTERACTION" | "BLOCKED_PAYOUT" | "DECOY_CONTAINMENT" | "HIGH_RISK_DECISION" | "NEW_DEVICE" | "NEW_LOCATION" | "UNUSUAL_TIME" | "NEW_PAYEE" | "LARGE_PAYOUT" | "NEW_PAYEE_LARGE_PAYOUT" | "PAYEE_ADD_THEN_PAYOUT" | "SESSION_REVOKED" | "EVIDENCE_INTEGRITY";
+        /** InvestigationListResponse */
+        InvestigationListResponse: {
+            /** Items */
+            items: components["schemas"]["InvestigationResponse"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
+        /** InvestigationNarrative */
+        InvestigationNarrative: {
+            /** Headline */
+            headline: string;
+            /** Summary */
+            summary: string;
+            /** Why Suspicious */
+            why_suspicious: string;
+            /** Uncertainty Notes */
+            uncertainty_notes?: string[];
+            /**
+             * Generated By
+             * @default deterministic
+             * @enum {string}
+             */
+            generated_by: "deterministic" | "llm";
+        };
+        /** InvestigationRecommendation */
+        InvestigationRecommendation: {
+            /** Action */
+            action: string;
+            /** Rationale */
+            rationale: string;
+            /**
+             * Priority
+             * @default MEDIUM
+             */
+            priority: string;
+            /**
+             * Advisory Only
+             * @default true
+             */
+            advisory_only: boolean;
+            /**
+             * Requires Human Approval
+             * @default true
+             */
+            requires_human_approval: boolean;
+        };
+        /** InvestigationResponse */
+        InvestigationResponse: {
+            /**
+             * Investigation Id
+             * Format: uuid
+             */
+            investigation_id: string;
+            /**
+             * Incident Id
+             * Format: uuid
+             */
+            incident_id: string;
+            /** Session Id */
+            session_id?: string | null;
+            /**
+             * Merchant Id
+             * Format: uuid
+             */
+            merchant_id: string;
+            status: components["schemas"]["InvestigationStatus"];
+            /** Ai Used */
+            ai_used: boolean;
+            /** Model Name */
+            model_name?: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            bundle: components["schemas"]["InvestigationBundle"];
+        };
+        /**
+         * InvestigationStatus
+         * @enum {string}
+         */
+        InvestigationStatus: "COMPLETE" | "FALLBACK";
+        /** ManualReconcileResponse */
+        ManualReconcileResponse: {
+            /**
+             * Payout Id
+             * Format: uuid
+             */
+            payout_id: string;
+            /** Status */
+            status: string;
+            /**
+             * Reconciled
+             * @description Whether the payout reached a terminal state
+             * @default true
+             */
+            reconciled: boolean;
+            /** Message */
+            message: string;
+        };
         /** MerchantView */
         MerchantView: {
             /**
@@ -2835,6 +3576,104 @@ export interface components {
             payout_id?: string | null;
             /** Incident Id */
             incident_id?: string | null;
+        };
+        /** ReconciliationListResponse */
+        ReconciliationListResponse: {
+            /** Items */
+            items: components["schemas"]["ReconciliationPayoutSummary"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
+        /**
+         * ReconciliationPayoutSummary
+         * @description Administrative view of a payout's reconciliation state.
+         *
+         *     Deliberately excludes sensitive recipient information and provider
+         *     credentials. Scoped to a single merchant.
+         */
+        ReconciliationPayoutSummary: {
+            /**
+             * Payout Id
+             * Format: uuid
+             */
+            payout_id: string;
+            /**
+             * Merchant Id
+             * Format: uuid
+             */
+            merchant_id: string;
+            /**
+             * Status
+             * @description Current payout state-machine status
+             */
+            status: string;
+            /**
+             * Provider Batch Id
+             * @description Provider batch id, only present when a provider reference exists
+             */
+            provider_batch_id?: string | null;
+            /** Provider Name */
+            provider_name?: string | null;
+            /**
+             * Reconciliation Attempts
+             * @description Number of automated reconciliation attempts made
+             * @default 0
+             */
+            reconciliation_attempts: number;
+            /** Last Reconciled At */
+            last_reconciled_at?: string | null;
+            /** Next Retry At */
+            next_retry_at?: string | null;
+            /** Escalated At */
+            escalated_at?: string | null;
+            /** Escalation Reason */
+            escalation_reason?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Amount */
+            amount: number;
+        };
+        /**
+         * ReconciliationStats
+         * @description Stuck-payout and reconciliation metrics for an analyst console.
+         */
+        ReconciliationStats: {
+            /**
+             * Merchant Id
+             * Format: uuid
+             */
+            merchant_id: string;
+            /**
+             * Total Unresolved
+             * @description Payouts still pending or processing and not escalated
+             * @default 0
+             */
+            total_unresolved: number;
+            /**
+             * Total Escalated
+             * @description Payouts escalated to manual review
+             * @default 0
+             */
+            total_escalated: number;
+            /**
+             * Stuck Payouts
+             * @description Unresolved payouts older than the stuck threshold (30 minutes)
+             * @default 0
+             */
+            stuck_payouts: number;
+            /**
+             * Total Pending Retry
+             * @description Payouts awaiting their next automated retry
+             * @default 0
+             */
+            total_pending_retry: number;
         };
         /** RiskBucket */
         RiskBucket: {
@@ -3765,6 +4604,155 @@ export interface operations {
             };
         };
     };
+    list_reconciliation_payouts_v1_reconciliation_payouts_get: {
+        parameters: {
+            query?: {
+                /** @description Filter by payout status */
+                status?: string | null;
+                /** @description Filter by escalation state */
+                escalated?: boolean | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reconciliation_stats_v1_reconciliation_stats_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reconcile_one_payout_v1_reconciliation_payouts__payout_id__reconcile_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path: {
+                /** @description Payout id to reconcile */
+                payout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualReconcileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    escalate_payout_v1_reconciliation_payouts__payout_id__escalate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path: {
+                /** @description Payout id to escalate */
+                payout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EscalateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualReconcileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sessions_v1_sessions_get: {
         parameters: {
             query?: {
@@ -4367,6 +5355,230 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IncidentActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_intent_profiles_v1_sessions__session_id__intent_profiles_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntentProfileListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_intent_profile_v1_sessions__session_id__intent_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["IntentProfileCreateRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntentProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_intent_profile_v1_intent_profiles__profile_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntentProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_investigations_v1_incidents__incident_id__investigations_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvestigationListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_investigation_v1_incidents__incident_id__investigations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InvestigationCreateRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvestigationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_investigation_v1_investigations__investigation_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
+            path: {
+                investigation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvestigationResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5312,7 +6524,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5344,7 +6560,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5376,7 +6596,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path: {
                 customer_id: string;
             };
@@ -5410,7 +6634,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5443,7 +6671,11 @@ export interface operations {
                 identity_id: string;
                 format?: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5475,7 +6707,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path: {
                 invoice_id: string;
             };
@@ -5511,7 +6747,11 @@ export interface operations {
                 page?: number;
                 page_size?: number;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5543,7 +6783,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5572,7 +6816,11 @@ export interface operations {
     add_payee_v1_honey_payees_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5587,6 +6835,15 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     list_payouts_v1_honey_payouts_get: {
@@ -5595,7 +6852,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5624,7 +6885,11 @@ export interface operations {
     create_payout_v1_honey_payouts_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5639,6 +6904,15 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_payout_v1_honey_payouts__payout_batch_id__get: {
@@ -5647,7 +6921,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path: {
                 payout_batch_id: string;
             };
@@ -5681,7 +6959,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5710,7 +6992,11 @@ export interface operations {
     reveal_creds_v1_honey_developer_credentials_reveal_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5725,12 +7011,25 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     issue_access_token_v1_honey_developer_token_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5743,6 +7042,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5753,7 +7061,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5785,7 +7097,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5817,7 +7133,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path: {
                 invoice_id: string;
             };
@@ -5853,7 +7173,11 @@ export interface operations {
                 page?: number;
                 page_size?: number;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5885,7 +7209,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5914,7 +7242,11 @@ export interface operations {
     create_payout_v1_payments_payouts_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5929,6 +7261,15 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_payout_v1_payments_payouts__payout_batch_id__get: {
@@ -5937,7 +7278,11 @@ export interface operations {
                 session_id: string;
                 identity_id: string;
             };
-            header?: never;
+            header?: {
+                "X-Dev-Role"?: string | null;
+                "X-Dev-Merchant-Id"?: string | null;
+                "X-Dev-User-Id"?: string | null;
+            };
             path: {
                 payout_batch_id: string;
             };

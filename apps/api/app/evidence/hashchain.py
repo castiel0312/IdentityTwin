@@ -56,18 +56,31 @@ class EvidenceChain:
         p_hash = payload_hash(payload)
         session_id = payload.get("session_id")
         event_type = payload.get("type", event_ref)
-        if session_id and event_type not in {"incident_sealed", "analyst_action"}:
+        session_uuid: UUID | None = None
+        if session_id:
             try:
                 session_uuid = UUID(str(session_id))
             except ValueError:
                 session_uuid = None
-            if (
-                session_uuid is not None
-                and self.db.scalars(
-                    select(IncidentSeal).where(IncidentSeal.session_id == session_uuid)
-                ).first()
-            ):
-                raise ValueError("Evidence for a sealed session must be recorded separately.")
+        merchant_uuid: UUID | None = None
+        raw_merchant = payload.get("merchant_id")
+        if raw_merchant:
+            try:
+                merchant_uuid = UUID(str(raw_merchant))
+            except ValueError:
+                merchant_uuid = None
+        if merchant_uuid is None and session_uuid is not None:
+            scoped_session = self.db.get(SessionRecord, session_uuid)
+            if scoped_session is not None:
+                merchant_uuid = scoped_session.merchant_id
+        if (
+            session_uuid is not None
+            and event_type not in {"incident_sealed", "analyst_action"}
+            and self.db.scalars(
+                select(IncidentSeal).where(IncidentSeal.session_id == session_uuid)
+            ).first()
+        ):
+            raise ValueError("Evidence for a sealed session must be recorded separately.")
 
         # The process lock covers SQLite and the transaction advisory lock
         # serializes writers across API workers on PostgreSQL.
@@ -90,6 +103,8 @@ class EvidenceChain:
                 payload_hash=p_hash,
                 prev_hash=prev_hash,
                 hash=h,
+                session_id=session_uuid,
+                merchant_id=merchant_uuid,
                 created_at=datetime.now(timezone.utc),
             )
             self.db.add(entry)
@@ -223,13 +238,16 @@ class EvidenceChain:
             },
         )
 
-        stmt = select(EvidenceLogEntry).order_by(EvidenceLogEntry.seq.asc())
-        entries = list(self.db.scalars(stmt).all())
-        scoped_sequences = []
-        for entry in entries:
-            payload_row = self.db.get(EvidencePayload, entry.seq)
-            if payload_row and str(payload_row.payload.get("session_id")) == str(session_uuid):
-                scoped_sequences.append(entry.seq)
+        scoped_sequences = list(
+            self.db.scalars(
+                select(EvidenceLogEntry.seq)
+                .where(
+                    EvidenceLogEntry.session_id == session_uuid,
+                    EvidenceLogEntry.merchant_id == merchant_uuid,
+                )
+                .order_by(EvidenceLogEntry.seq.asc())
+            ).all()
+        )
 
         start_seq = min(scoped_sequences) if scoped_sequences else 0
         end_seq = max(scoped_sequences) if scoped_sequences else 0

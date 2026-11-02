@@ -37,6 +37,8 @@ from app.models.evidence import (
     IncidentSeal,
 )
 from app.models.incident import IncidentRecord
+from app.models.intent import IntentProfileRecord
+from app.models.investigation import InvestigationRecord
 from app.models.principal import Merchant, User
 from app.models.session import SessionRecord
 from app.models.twin import BehavioralTwin, SessionRiskStateRecord
@@ -168,6 +170,8 @@ def reset_behavioral_state(db_session: Session) -> Generator[None, None, None]:
             for operation in ("update", "delete"):
                 connection.execute(text(f"DROP TRIGGER IF EXISTS {table}_reject_{operation}"))
 
+    db_session.query(IntentProfileRecord).delete()
+    db_session.query(InvestigationRecord).delete()
     db_session.query(BehavioralTwin).delete()
     db_session.query(SessionRiskStateRecord).delete()
     db_session.query(EvidencePayload).delete()
