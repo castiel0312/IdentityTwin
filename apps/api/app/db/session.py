@@ -7,6 +7,7 @@ from sqlalchemy.schema import CreateSchema
 from app.core.config import settings
 from app.models.base import Base
 from app.models.evidence import HoneyWorkspaceState
+from app.services import domain_events  # noqa: F401
 
 connect_args = {}
 if "sqlite" in settings.DATABASE_URL:

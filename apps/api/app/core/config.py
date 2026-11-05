@@ -256,6 +256,13 @@ class Settings(BaseSettings):
         default="",
         description="OpenAI-compatible base URL for the optional narrative provider.",
     )
+    AI_LLM_EGRESS_HOST: str = Field(
+        default="",
+        description=(
+            "Exact public hostname allowed by the outbound LLM egress proxy; must match "
+            "AI_LLM_BASE_URL's hostname."
+        ),
+    )
     AI_LLM_API_KEY: str = Field(
         default="",
         description="API key for the optional narrative provider. Never sent to clients.",
@@ -649,7 +656,12 @@ class Settings(BaseSettings):
         if self.AI_LLM_ENABLED:
             missing = [
                 name
-                for name in ("AI_LLM_BASE_URL", "AI_LLM_API_KEY", "AI_LLM_MODEL")
+                for name in (
+                    "AI_LLM_BASE_URL",
+                    "AI_LLM_EGRESS_HOST",
+                    "AI_LLM_API_KEY",
+                    "AI_LLM_MODEL",
+                )
                 if not str(getattr(self, name) or "").strip()
             ]
             if missing:
@@ -662,6 +674,11 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "AI_LLM_BASE_URL must be a public https origin without embedded "
                     "credentials or private/loopback/link-local targets."
+                )
+            configured_host = urlsplit(self.AI_LLM_BASE_URL).hostname
+            if self.AI_LLM_EGRESS_HOST.strip().lower() != (configured_host or "").lower():
+                raise ValueError(
+                    "AI_LLM_EGRESS_HOST must exactly match the hostname in AI_LLM_BASE_URL."
                 )
         return self
 

@@ -47,21 +47,30 @@ not disclosed. Merchants cannot run investigations.
 AI_INVESTIGATION_ENABLED=true
 AI_LLM_ENABLED=false
 AI_LLM_BASE_URL=
+AI_LLM_EGRESS_HOST=
 AI_LLM_API_KEY=
 AI_LLM_MODEL=
 AI_LLM_TIMEOUT=10.0
 AI_LLM_MAX_INPUT_CHARS=12000
+AI_LLM_MAX_RESPONSE_BYTES=65536
 AI_INVESTIGATION_MAX_EVENTS=100
 ```
 
-When `AI_LLM_ENABLED=true`, all of `AI_LLM_BASE_URL`, `AI_LLM_API_KEY` and
-`AI_LLM_MODEL` must be set, and the base URL must be a public HTTPS origin
-without embedded credentials. Loopback, private, link-local, reserved and
-internal hostnames are rejected to reduce SSRF risk; DNS rebinding is a
-remaining residual risk because DNS is not pinned. The provider must expose an
-OpenAI-compatible `POST {base_url}/chat/completions` endpoint. Provider failure
-results in `status="FALLBACK"`, `ai_used=false` and a deterministic narrative;
-the API request itself still succeeds.
+When `AI_LLM_ENABLED=true`, configure all of `AI_LLM_BASE_URL`,
+`AI_LLM_EGRESS_HOST`, `AI_LLM_API_KEY` and `AI_LLM_MODEL`. The egress host must
+exactly match the URL hostname, and Compose allows the proxy to CONNECT only to
+that hostname on TLS port 443 (in addition to the allowlisted PayPal Sandbox
+host). Put the API key in an untracked local `.env` or, outside local
+development, a managed secret store; never commit it or put it in a frontend
+variable. The base URL must be a public HTTPS origin without embedded
+credentials. Loopback, private, link-local, reserved and internal hostnames
+are rejected; DNS rebinding remains a residual risk because DNS is not pinned.
+The provider must expose an OpenAI-compatible `POST
+{base_url}/chat/completions` endpoint. Provider failure results in
+`status="FALLBACK"`, `ai_used=false` and a deterministic narrative; the API
+request itself still succeeds. The configured LLM is used only for the
+investigation narrative; deterministic findings and gateway decisions remain
+separate and authoritative.
 
 Evidence is delimited as untrusted data in the prompt and must never be treated
 as instructions. Oversized projections are reduced structurally

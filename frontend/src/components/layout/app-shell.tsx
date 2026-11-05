@@ -19,6 +19,7 @@ import { NAV_GROUPS, NAV_ITEMS, navItemForPath, type NavItem } from "@/lib/navig
 import { queryClient } from "@/lib/query";
 import { truncateMiddle } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useContainmentStream } from "@/lib/sse";
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
@@ -201,6 +202,7 @@ function AccountMenu() {
 
 export function AppShell() {
   const { session } = useAuth();
+  const stream = useContainmentStream(Boolean(session), session);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const current = navItemForPath(location.pathname);
@@ -312,7 +314,7 @@ export function AppShell() {
         </header>
 
         <main id="main-content" className="mx-auto w-full max-w-[1500px] px-4 py-7 lg:px-8 lg:py-10">
-          <Outlet />
+          <Outlet context={stream} />
         </main>
 
         <footer className="mx-auto flex w-full max-w-[1500px] flex-col gap-1 border-t border-border/60 px-4 py-6 text-[11px] text-muted-foreground lg:px-8">

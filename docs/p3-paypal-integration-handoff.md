@@ -848,3 +848,46 @@ approval URL functionality.
 | Idempotency hash | **Fixed** — includes reference_note and session |
 | Test suite | 492 passed (469 original + 23 new regression) |
 | Live PayPal integration | **Blocked externally** — Sandbox account/country restriction |
+
+## 12. Controlled Sandbox receiver setup for live acceptance
+
+A real Sandbox payout is **blocked until an operator provisions and identifies
+a receiver account they control**. Do not send to a sample, public, or
+unverified address.
+
+1. Sign in to the PayPal Developer Dashboard at `developer.paypal.com` and
+   select **Sandbox → Accounts**.
+2. Create or select a **Sandbox Personal** account under the same Sandbox
+   application environment. This Personal account is the controlled receiver;
+   do not use a Live account. Open its account details and copy its generated
+   Sandbox email address exactly.
+3. Create or select a **Sandbox Business** account and its REST app under
+   **Apps & Credentials → Sandbox**. Use only that app's Sandbox Client ID and
+   Secret. Never place either value in source control, frontend variables, a
+   report, or command output.
+4. Configure the local secret store / untracked root `.env`:
+
+   ```dotenv
+   PAYMENT_PROVIDER=paypal_sandbox
+   PAYPAL_BASE_URL=https://api-m.sandbox.paypal.com
+   PAYPAL_CLIENT_ID=<Sandbox REST app client ID>
+   PAYPAL_CLIENT_SECRET=<Sandbox REST app secret>
+   ```
+
+   The payout API has no separate receiver setting: submit the controlled
+   Personal account's generated Sandbox email as `recipient_email` on the one
+   explicitly approved acceptance payout. Keep the amount low and use a new
+   idempotency key. Do not change trust thresholds or bypass gateway
+   authorization.
+5. Before any payout, verify the displayed API context says
+   `paypal_sandbox`, the recipient address is the controlled Sandbox address,
+   and the test request's trust decision allows the operation. Capture the
+   actual API/provider response and persisted provider batch/reference without
+   logging credentials or access tokens.
+6. A successful HTTP submission is not proof of settlement. Verify the
+   provider-reported batch/item state through the existing reconciliation or
+   read path; only a provider-confirmed success may be reported as completed.
+
+If PayPal does not permit the receiver account or payout in the configured
+Sandbox country/currency, stop and record the payout as **BLOCKED**. Do not
+fall back to the mock adapter and describe it as a PayPal result.

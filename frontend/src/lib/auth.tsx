@@ -21,6 +21,7 @@ export interface AuthSession {
   token: string;
   label: string;
   role: ConsoleRole;
+  merchantId: string;
   developmentOnly: boolean;
   devHeaders: DevHeaders;
 }
@@ -119,6 +120,10 @@ function readStoredSession(): AuthSession | null {
       token: parsed.token,
       label: parsed.label,
       role: parsed.role,
+      merchantId:
+        typeof parsed.merchantId === "string"
+          ? parsed.merchantId
+          : devHeaders["X-Dev-Merchant-Id"],
       developmentOnly: parsed.developmentOnly !== false,
       devHeaders,
     };
@@ -143,6 +148,7 @@ function tokenCandidate(token: string): AuthSession {
       token: persona.token,
       label: persona.label,
       role: persona.role,
+      merchantId: persona.devHeaders["X-Dev-Merchant-Id"],
       developmentOnly: true,
       devHeaders: { ...persona.devHeaders },
     };
@@ -153,6 +159,7 @@ function tokenCandidate(token: string): AuthSession {
     token,
     label: "Bearer session",
     role,
+    merchantId: DEV_MERCHANT_ID,
     developmentOnly: token.startsWith("dev-"),
     devHeaders: {
       "X-Dev-Role": role,
@@ -178,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token: persona.token,
         label: persona.label,
         role: persona.role,
+        merchantId: persona.devHeaders["X-Dev-Merchant-Id"],
         developmentOnly: true,
         devHeaders: { ...persona.devHeaders },
       };
@@ -197,6 +205,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const verified: AuthSession = {
         ...candidate,
         role,
+        merchantId: context.principal.merchant_id,
         label:
           candidate.label === "Bearer session"
             ? context.principal.username || candidate.label

@@ -18,6 +18,7 @@ from app.api.routes.simulation import router as simulation_router
 from app.api.routes.stubs import router as stubs_router
 from app.api.routes.system import router as system_router
 from app.api.routes.twin import router as twin_router
+from app.api.routes.vaccination import router as vaccination_router
 from app.api.routes.webhooks import router as webhooks_router
 
 api_v1_router = APIRouter()
@@ -41,5 +42,6 @@ api_v1_router.include_router(agents_router)
 api_v1_router.include_router(risk_router)
 api_v1_router.include_router(honey_operator_router)
 api_v1_router.include_router(simulation_router)
+api_v1_router.include_router(vaccination_router)
 
 __all__ = ["api_v1_router", "health_router"]

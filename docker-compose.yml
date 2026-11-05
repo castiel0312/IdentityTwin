@@ -8,8 +8,12 @@ services:
       POSTGRES_USER: identitytwin_user
       POSTGRES_PASSWORD: identitytwin_pass
       POSTGRES_DB: identitytwin
-    ports:
-      - "${IDENTITYTWIN_DB_PORT:-127.0.0.1:5432}:5432"
+    # The database is reachable only on the private Docker network (db:5432).
+    # Host port publishing is intentionally omitted: identitytwin_private is an
+    # internal network, so a host mapping would not be published anyway. The API
+    # and alembic/seed all connect via the Docker service hostname (db:5432),
+    # which is the secure, intended path. Host access to PostgreSQL is not
+    # required for the stack to operate.
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/docker/init-honey-role.sql:/docker-entrypoint-initdb.d/01-honey-role.sql:ro
@@ -48,6 +52,16 @@ services:
       PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
       PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
       PAYPAL_BASE_URL: ${PAYPAL_BASE_URL:-https://api-m.sandbox.paypal.com}
+      AI_INVESTIGATION_ENABLED: ${AI_INVESTIGATION_ENABLED:-true}
+      AI_LLM_ENABLED: ${AI_LLM_ENABLED:-false}
+      AI_LLM_BASE_URL: ${AI_LLM_BASE_URL:-}
+      AI_LLM_EGRESS_HOST: ${AI_LLM_EGRESS_HOST:-}
+      AI_LLM_API_KEY: ${AI_LLM_API_KEY:-}
+      AI_LLM_MODEL: ${AI_LLM_MODEL:-}
+      AI_LLM_TIMEOUT: ${AI_LLM_TIMEOUT:-10}
+      AI_LLM_MAX_INPUT_CHARS: ${AI_LLM_MAX_INPUT_CHARS:-12000}
+      AI_LLM_MAX_RESPONSE_BYTES: ${AI_LLM_MAX_RESPONSE_BYTES:-65536}
+      AI_INVESTIGATION_MAX_EVENTS: ${AI_INVESTIGATION_MAX_EVENTS:-100}
       HTTP_PROXY: http://paypal-egress:3128
       HTTPS_PROXY: http://paypal-egress:3128
       NO_PROXY: localhost,127.0.0.1,api,db,paypal-egress,gateway
@@ -65,11 +79,15 @@ services:
   paypal-egress:
     image: ubuntu/squid:latest
     restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/identitytwin/squid-entrypoint.sh"]
+    environment:
+      AI_LLM_ENABLED: ${AI_LLM_ENABLED:-false}
+      AI_LLM_EGRESS_HOST: ${AI_LLM_EGRESS_HOST:-}
     networks:
       - identitytwin_private
       - gateway_egress
     volumes:
-      - ./scripts/docker/paypal-squid.conf:/etc/squid/squid.conf:ro
+      - ./scripts/docker/squid-entrypoint.sh:/opt/identitytwin/squid-entrypoint.sh:ro
 
   gateway:
     image: nginx:1.27-alpine
@@ -78,7 +96,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "${IDENTITYTWIN_API_PORT:-8000}:8000"
+      - "${IDENTITYTWIN_API_PORT:-8001}:8000"
     networks:
       - identitytwin_private
       - gateway_egress
@@ -100,7 +118,7 @@ services:
       gateway:
         condition: service_healthy
     ports:
-      - "${IDENTITYTWIN_CONSOLE_PORT:-3000}:80"
+      - "${IDENTITYTWIN_CONSOLE_PORT:-3001}:80"
     networks:
       - identitytwin_private
       - console_ingress

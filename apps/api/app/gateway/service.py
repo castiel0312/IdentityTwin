@@ -30,10 +30,13 @@ from app.gateway.provider import (
 from app.models.idempotency import IdempotencyRecord
 from app.models.payout import PayoutRequestRecord
 from app.models.risk import RiskDecisionRecord
-from app.risk.schemas import RiskEvaluationRequest
+from app.risk.config import get_risk_config
+from app.risk.schemas import RiskEvaluationRequest, RiskEvaluationResult
 from app.risk.service import IRiskEngineService, get_risk_engine
 from app.schemas.payouts import GatewayAction, PayoutRequest, PayoutResponse
-from app.schemas.sessions import SessionStatus
+from app.schemas.sessions import SessionStatus, TrustLevel
+from app.schemas.vaccination import VaccinationEvaluateRequest
+from app.services.vaccination_service import VaccinationService
 
 
 class TrustGatewayService:
@@ -220,6 +223,63 @@ class TrustGatewayService:
             )
             risk_result = self.risk_engine.evaluate(db, session, risk_eval_req)
 
+            # Vaccination: evaluate active behavioral attack signatures against
+            # the observed session behavior. A match adds an explainable risk
+            # signal fed into the existing risk decision; it never independently
+            # authorizes a payment or bypasses the Trust Gateway.
+            vaccination_service = VaccinationService(db)
+            vaccination_request = VaccinationEvaluateRequest(
+                session_id=session.session_id,
+                amount=request.amount,
+                recipient=request.recipient_email,
+                action_type="payout",
+                event_type="payout.execute",
+            )
+            vaccination_detail = vaccination_service.evaluate(
+                session=session, principal=principal, request=vaccination_request
+            )
+            # Provider outcome tracking is initialized before vaccination so the
+            # exception handler always references these names.
+            provider_invoked = False
+            provider_result = None
+            if vaccination_detail.matched:
+                config = get_risk_config()
+                adjusted_score = round(
+                    min(100.0, risk_result.risk_score + vaccination_detail.risk_points), 4
+                )
+                if adjusted_score >= config.threshold_isolated:
+                    adjusted_level = TrustLevel.ISOLATED
+                elif adjusted_score >= config.threshold_decoy:
+                    adjusted_level = TrustLevel.DECOY
+                elif adjusted_score >= config.threshold_restricted:
+                    adjusted_level = TrustLevel.RESTRICTED
+                else:
+                    adjusted_level = TrustLevel.NORMAL
+                risk_result = RiskEvaluationResult(
+                    decision_id=risk_result.decision_id,
+                    session_id=risk_result.session_id,
+                    risk_score=adjusted_score,
+                    evaluated_trust_level=adjusted_level,
+                    risk_signals={
+                        **risk_result.risk_signals,
+                        "VACCINATION_MATCH": vaccination_detail.risk_points,
+                    },
+                    reason_codes=[
+                        *risk_result.reason_codes,
+                        f"VACCINATION_SIGNATURE_MATCHED:{vaccination_detail.signature_name or ''}",
+                    ],
+                    evaluated_at=risk_result.evaluated_at,
+                    contributions=risk_result.contributions,
+                    features=risk_result.features,
+                    twin_provisional=risk_result.twin_provisional,
+                    twin_sample_count=risk_result.twin_sample_count,
+                    raw_points_sum=risk_result.raw_points_sum,
+                    decay_points=risk_result.decay_points,
+                    session_carried_forward=risk_result.session_carried_forward,
+                    duplicate_event=risk_result.duplicate_event,
+                    twin_updated=risk_result.twin_updated,
+                )
+
             # Step-up verification check for restricted clearances
             step_up_verified = False
             step_up_challenge = None
@@ -275,8 +335,6 @@ class TrustGatewayService:
             payout_status = "pending"
             executed_at = None
 
-            provider_invoked = False
-            provider_result = None
             provider_reported_failure = False
             provider_name = PROVIDER_NAME_NONE
 

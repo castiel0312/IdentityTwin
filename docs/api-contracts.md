@@ -62,6 +62,21 @@ Readiness probe testing database connectivity.
 
 ---
 
+### `GET /v1/events/stream`
+Authenticated Server-Sent Events for committed merchant-scoped changes.
+
+- **Auth**: Required. The server derives the tenant from the authenticated principal; caller-supplied tenant IDs are not accepted.
+- **Coverage**: Behavioral events, risk decisions, sessions, payouts, incidents, vaccination signatures/matches, evidence seals/entries, and investigation/analyst workflow records.
+- **Replay**: IDs are monotonically increasing within each tenant. Send `Last-Event-ID: <decimal-id>` (preferred) or `?after_event_id=<decimal-id>` to resume. Rows are written transactionally with the domain mutation, so API restarts do not discard committed events.
+- **Retention**: 30 days, pruned at startup and every six hours. If a cursor is ahead of the tenant head or older than retained history, the server sends `event: stream.reset`; clients must refresh their active read models and resume from its `id`.
+- **Payload**: Contains an event type, entity type/ID, operation, related session/incident IDs, and a small allowlist of non-sensitive status/risk fields. It excludes recipient addresses, credentials, provider references, idempotency keys, and raw evidence payloads.
+- **Ordering**: Per-tenant cursor row locking serializes event creation through transaction commit. Events are replayed in ascending ID order.
+- **Response**: `text/event-stream`; keep-alives are comments and carry no event ID.
+
+The stream is a notification/read-model synchronization mechanism. API responses and authenticated GET endpoints remain authoritative; event delivery must never be treated as a payout success signal.
+
+---
+
 ## 2. Event Telemetry Ingestion
 
 ### `POST /v1/events`

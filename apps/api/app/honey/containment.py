@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import OwnershipMismatchException
 from app.core.security import AuthenticatedPrincipal
 from app.evidence.hashchain import EvidenceChain
-from app.honey.events import containment_event_bus
 from app.models.canary import CanaryRecord
 from app.models.incident import IncidentRecord
 from app.models.session import SessionRecord
@@ -102,11 +101,4 @@ def contain_canary_hit(db: Session, hit: dict, principal: AuthenticatedPrincipal
         },
     )
     chain.seal(incident.incident_id, session_uuid, session.merchant_id)
-    containment_event_bus.publish(
-        merchant_id=session.merchant_id,
-        incident_id=incident.incident_id,
-        session_id=session_uuid,
-        severity=incident.severity,
-        status=incident.status,
-    )
     return str(incident.incident_id)

@@ -1,6 +1,7 @@
 """Risk decision read projections for the Risk Intelligence console."""
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -29,7 +30,10 @@ from app.services.system_service import SIGNAL_DESCRIPTIONS
 
 
 def _decision_item(
-    decision: RiskDecisionRecord, payout_id: UUID | None
+    decision: RiskDecisionRecord,
+    payout_id: UUID | None,
+    reason_codes: list[str] | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> RiskDecisionItem:
     return RiskDecisionItem(
         decision_id=decision.decision_id,
@@ -39,8 +43,14 @@ def _decision_item(
         trust_level=decision.trust_level,
         action=decision.action,
         routing_destination=decision.routing_destination,
-        reason_codes=list(decision.reason_codes or []),
-        risk_signals=dict(decision.risk_signals or {}),
+        reason_codes=(
+            reason_codes if reason_codes is not None
+            else list(decision.reason_codes or [])
+        ),
+        risk_signals=(
+            risk_signals if risk_signals is not None
+            else dict(decision.risk_signals or {})
+        ),
         evaluated_at=decision.evaluated_at,
     )
 
@@ -164,6 +174,37 @@ def get_decision_detail(
         contributions = list(state.contributions)
         sequence_markers = list(state.sequence_markers)
 
+    # Build reason codes and risk signals from the authoritative contribution
+    # ledger, then supplement with policy/enforcement codes from the persisted
+    # decision record. This keeps the displayed reason codes consistent with the
+    # stored contributions when a session-scoped signal (for example UNUSUAL_TIME)
+    # was latched in an earlier evaluation and is not re-emitted by the current
+    # one.
+    signal_reason_codes = [
+        contribution.reason_code
+        for contribution in contributions
+        if contribution.kind == "signal"
+    ]
+    signal_risk_signals = {
+        contribution.name: contribution.points
+        for contribution in contributions
+        if contribution.kind == "signal"
+    }
+
+    decision_reason_codes = list(decision.reason_codes or [])
+    signal_code_set = set(signal_reason_codes)
+    policy_reason_codes = [
+        code for code in decision_reason_codes if code not in signal_code_set
+    ]
+    combined_reason_codes = signal_reason_codes + policy_reason_codes
+
+    decision_signals = dict(decision.risk_signals or {})
+    signal_name_set = set(signal_risk_signals.keys())
+    combined_risk_signals = dict(signal_risk_signals)
+    for name, value in decision_signals.items():
+        if name not in signal_name_set:
+            combined_risk_signals[name] = value
+
     twin_record = TwinRepository(db).get_twin(principal.merchant_id, session.user_id)
     twin = None
     if twin_record is not None:
@@ -187,7 +228,12 @@ def get_decision_detail(
         )
 
     return RiskDecisionDetailResponse(
-        decision=_decision_item(decision, payout.payout_id if payout else None),
+        decision=_decision_item(
+            decision,
+            payout.payout_id if payout else None,
+            reason_codes=combined_reason_codes,
+            risk_signals=combined_risk_signals,
+        ),
         session=SessionResponse.model_validate(session),
         payout=payouts[0] if payouts else None,
         signals=_signal_definitions(),

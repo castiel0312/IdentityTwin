@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AuthSession } from "@/lib/auth";
+import { queryClient } from "@/lib/query";
 
 export type StreamStatus =
   | "idle"
@@ -10,10 +11,12 @@ export type StreamStatus =
   | "error";
 
 export interface ContainmentStreamEvent {
-  eventId: number;
+  eventId: string;
   event: string;
+  entityType: string;
+  entityId: string;
   incidentId: string;
-  sessionId: string;
+  sessionId: string | null;
   severity: string;
   status: string;
   receivedAt: string;
@@ -22,8 +25,10 @@ export interface ContainmentStreamEvent {
 export interface ContainmentStream {
   status: StreamStatus;
   events: ContainmentStreamEvent[];
-  lastEventId: number;
+  lastEventId: string;
   error: string | null;
+  paused: boolean;
+  setPaused: (paused: boolean) => void;
   clear: () => void;
 }
 
@@ -31,6 +36,103 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const INITIAL_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 15_000;
 const MAX_EVENTS = 50;
+const QUERY_KEYS_BY_EVENT: Record<string, readonly (readonly unknown[])[]> = {
+  "behavioral.event": [
+    ["sessions"],
+    ["session"],
+    ["session-activity"],
+    ["session-intent-profiles"],
+    ["risk-decisions"],
+    ["analytics-overview"],
+  ],
+  "risk.decision": [
+    ["risk-decisions"],
+    ["risk-decision"],
+    ["sessions"],
+    ["session"],
+    ["payouts"],
+    ["payout"],
+    ["analytics-overview"],
+  ],
+  "session.changed": [
+    ["sessions"],
+    ["session"],
+    ["session-activity"],
+    ["session-intent-profiles"],
+    ["identities"],
+    ["identity"],
+    ["analytics-overview"],
+  ],
+  "payout.changed": [["payouts"], ["payout"], ["risk-decisions"], ["analytics-overview"]],
+  "incident.changed": [
+    ["incidents"],
+    ["incident"],
+    ["incident-actions"],
+    ["incident-timeline"],
+    ["incident-seal"],
+    ["incident-trace"],
+    ["incident-investigations"],
+    ["analytics-overview"],
+  ],
+  "vaccination.match": [
+    ["vaccination-matches"],
+    ["risk-decisions"],
+    ["sessions"],
+    ["session"],
+    ["analytics-overview"],
+  ],
+  "vaccination.signature": [["vaccination-signatures"], ["vaccination-matches"]],
+  "evidence.appended": [["evidence-seals"], ["evidence-verify"], ["incident-seal"]],
+  "evidence.sealed": [["evidence-seals"], ["evidence-seal"], ["incident-seal"]],
+  "investigation.changed": [
+    ["incident-investigations"],
+    ["incident"],
+    ["incident-actions"],
+    ["incident-timeline"],
+  ],
+  "analyst.workflow": [
+    ["incidents"],
+    ["incident"],
+    ["incident-actions"],
+    ["incident-timeline"],
+    ["incident-investigations"],
+    ["incident-trace"],
+    ["analytics-overview"],
+  ],
+};
+
+function cursorStorageKey(session: AuthSession): string {
+  return `identitytwin.domain-events.${session.merchantId}`;
+}
+
+function readStoredCursor(session: AuthSession): string {
+  try {
+    const value = window.sessionStorage.getItem(cursorStorageKey(session));
+    return value && /^\d{1,19}$/.test(value) ? value : "0";
+  } catch {
+    return "0";
+  }
+}
+
+function storeCursor(session: AuthSession, value: string): void {
+  try {
+    window.sessionStorage.setItem(cursorStorageKey(session), value);
+  } catch {
+    // Streaming remains functional when browser storage is unavailable.
+  }
+}
+
+function synchronizeQueries(eventName: string): void {
+  if (eventName === "stream.reset") {
+    void queryClient.invalidateQueries();
+    return;
+  }
+  const keys = QUERY_KEYS_BY_EVENT[eventName] ?? [];
+  for (const queryKey of keys) {
+    void queryClient.cancelQueries({ queryKey: [...queryKey] });
+    void queryClient.invalidateQueries({ queryKey: [...queryKey] });
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -42,10 +144,11 @@ export function useContainmentStream(
 ): ContainmentStream {
   const [status, setStatus] = useState<StreamStatus>("idle");
   const [events, setEvents] = useState<ContainmentStreamEvent[]>([]);
-  const [lastEventId, setLastEventId] = useState(0);
+  const [lastEventId, setLastEventId] = useState(() => (session ? readStoredCursor(session) : "0"));
   const [error, setError] = useState<string | null>(null);
-  const lastEventIdRef = useRef(0);
-  const seenRef = useRef<Set<number>>(new Set());
+  const [paused, setPaused] = useState(false);
+  const lastEventIdRef = useRef(lastEventId);
+  const seenRef = useRef<Set<string>>(new Set());
 
   const clear = useCallback(() => {
     setEvents([]);
@@ -53,7 +156,11 @@ export function useContainmentStream(
   }, []);
 
   useEffect(() => {
-    if (!enabled || !session) return;
+    if (!session) return;
+    const storedCursor = readStoredCursor(session);
+    lastEventIdRef.current = storedCursor;
+    setLastEventId(storedCursor);
+    if (!enabled || paused) return;
 
     let cancelled = false;
     let controller: AbortController | null = null;
@@ -62,7 +169,7 @@ export function useContainmentStream(
 
     const handleBlock = (block: string) => {
       let eventName = "message";
-      let eventId = 0;
+      let eventId = "";
       let data = "";
 
       for (const line of block.split("\n")) {
@@ -72,7 +179,7 @@ export function useContainmentStream(
         const raw = separator === -1 ? "" : line.slice(separator + 1);
         const value = raw.startsWith(" ") ? raw.slice(1) : raw;
         if (field === "event") eventName = value;
-        else if (field === "id") eventId = Number(value);
+        else if (field === "id") eventId = value;
         else if (field === "data") data = data ? `${data}\n${value}` : value;
       }
 
@@ -83,26 +190,41 @@ export function useContainmentStream(
       } catch {
         return;
       }
-      if (!isRecord(payload)) return;
-
-      const resolvedId = Number.isFinite(eventId) ? eventId : Date.now();
-      if (seenRef.current.has(resolvedId)) return;
-      seenRef.current.add(resolvedId);
-      if (resolvedId > lastEventIdRef.current) {
-        lastEventIdRef.current = resolvedId;
-        setLastEventId(resolvedId);
+      if (!isRecord(payload) || !/^\d{1,19}$/.test(eventId)) return;
+      if (eventName === "stream.reset") {
+        seenRef.current.clear();
+        lastEventIdRef.current = eventId;
+        storeCursor(session, eventId);
+        setLastEventId(eventId);
+        synchronizeQueries(eventName);
+        return;
+      }
+      if (seenRef.current.has(eventId)) return;
+      seenRef.current.add(eventId);
+      if (BigInt(eventId) > BigInt(lastEventIdRef.current)) {
+        lastEventIdRef.current = eventId;
+        setLastEventId(eventId);
+        storeCursor(session, eventId);
       }
 
       const nextEvent: ContainmentStreamEvent = {
-        eventId: resolvedId,
+        eventId,
         event: eventName,
-        incidentId: typeof payload.incident_id === "string" ? payload.incident_id : "",
-        sessionId: typeof payload.session_id === "string" ? payload.session_id : "",
+        entityType: typeof payload.entity_type === "string" ? payload.entity_type : "",
+        entityId: typeof payload.entity_id === "string" ? payload.entity_id : "",
+        incidentId:
+          typeof payload.incident_id === "string"
+            ? payload.incident_id
+            : eventName.startsWith("incident.") && typeof payload.entity_id === "string"
+              ? payload.entity_id
+              : "",
+        sessionId: typeof payload.session_id === "string" ? payload.session_id : null,
         severity: typeof payload.severity === "string" ? payload.severity : "UNKNOWN",
         status: typeof payload.status === "string" ? payload.status : "UNKNOWN",
         receivedAt: new Date().toISOString(),
       };
       setEvents((current) => [nextEvent, ...current].slice(0, MAX_EVENTS));
+      synchronizeQueries(eventName);
     };
 
     const connect = async () => {
@@ -112,8 +234,8 @@ export function useContainmentStream(
 
       try {
         const params = new URLSearchParams();
-        if (lastEventIdRef.current > 0) {
-          params.set("after_event_id", String(lastEventIdRef.current));
+        if (lastEventIdRef.current !== "0") {
+          params.set("after_event_id", lastEventIdRef.current);
         }
         const query = params.toString();
         const headers: Record<string, string> = {
@@ -121,8 +243,8 @@ export function useContainmentStream(
           Authorization: `Bearer ${session.token}`,
           ...session.devHeaders,
         };
-        if (lastEventIdRef.current > 0) {
-          headers["Last-Event-ID"] = String(lastEventIdRef.current);
+        if (lastEventIdRef.current !== "0") {
+          headers["Last-Event-ID"] = lastEventIdRef.current;
         }
 
         const response = await fetch(
@@ -184,14 +306,16 @@ export function useContainmentStream(
       controller?.abort();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [enabled, session]);
+  }, [enabled, paused, session]);
 
-  const active = enabled && session !== null;
+  const active = enabled && !paused && session !== null;
   return {
     status: active ? status : "idle",
     events,
     lastEventId,
     error: active ? error : null,
+    paused,
+    setPaused,
     clear,
   };
 }

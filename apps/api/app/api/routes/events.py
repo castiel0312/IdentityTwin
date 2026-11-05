@@ -9,7 +9,7 @@ from app.core.security import (
     get_current_principal,
 )
 from app.db.session import get_db
-from app.honey.events import stream_containment_events
+from app.honey.events import _valid_cursor, stream_domain_events
 from app.schemas.events import EventIngestRequest, EventIngestResponse
 from app.services.event_service import EventService
 
@@ -19,27 +19,24 @@ router = APIRouter(prefix="/events", tags=["Event Ingestion"])
 @router.get(
     "/stream",
     response_class=StreamingResponse,
-    summary="Stream containment events for the authenticated merchant",
+    summary="Stream retained domain events for the authenticated merchant",
 )
 async def stream_events(
     request: Request,
-    after_event_id: int = Query(default=0, ge=0),
+    after_event_id: str = Query(default="0"),
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> StreamingResponse:
     if last_event_id is not None:
-        try:
-            after_event_id = int(last_event_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=400, detail="Last-Event-ID must be an integer."
-            ) from None
-        if after_event_id < 0:
-            raise HTTPException(status_code=400, detail="Last-Event-ID must not be negative.")
+        after_event_id = last_event_id
+    try:
+        cursor = _valid_cursor(after_event_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
     async def generate() -> AsyncGenerator[str, None]:
-        async for event in stream_containment_events(
-            request, principal.merchant_id, after_event_id
+        async for event in stream_domain_events(
+            request, principal.merchant_id, cursor
         ):
             yield event
 

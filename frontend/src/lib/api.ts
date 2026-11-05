@@ -42,6 +42,106 @@ export interface EvidenceVerification {
   reason?: string | null;
 }
 
+export interface VaccinationSignatureSummary {
+  signature_id: string;
+  source_merchant_id: string;
+  version: number;
+  status: string;
+  name: string;
+  description: string | null;
+  detection_confidence: number;
+  evidence_refs: number[];
+  created_by: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  revoked_by: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+  match_count: number;
+}
+
+export interface VaccinationSignatureResponse extends VaccinationSignatureSummary {
+  signature_definition: Record<string, unknown>;
+}
+
+export interface VaccinationSignatureListResponse {
+  items: VaccinationSignatureSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface VaccinationSignatureCreateRequest {
+  session_id: string;
+  name: string;
+  description?: string | null;
+  signature_definition?: Record<string, unknown>;
+  detection_confidence?: number;
+  evidence_refs?: number[];
+}
+
+export interface VaccinationSignatureActionRequest {
+  notes?: string | null;
+}
+
+export interface VaccinationSignatureActionResponse {
+  signature_id: string;
+  action: string;
+  previous_status: string;
+  new_status: string;
+  analyst_id: string;
+  timestamp: string;
+  notes: string | null;
+  message: string;
+}
+
+export interface VaccinationMatchResponse {
+  match_id: string;
+  signature_id: string;
+  signature_name: string;
+  target_merchant_id: string;
+  session_id: string | null;
+  matched_at: string;
+  match_score: number;
+  match_reason: string;
+  matched_features: Record<string, unknown>;
+  evidence_refs: number[];
+  risk_points: number;
+}
+
+export interface VaccinationMatchListResponse {
+  items: VaccinationMatchResponse[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface VaccinationEvaluateRequest {
+  session_id: string;
+  amount?: number;
+  recipient?: string;
+  action_type?: string;
+  event_type?: string;
+}
+
+export interface VaccinationMatchDetail {
+  matched: boolean;
+  signature_id: string | null;
+  signature_name: string | null;
+  match_score: number;
+  match_reason: string;
+  matched_features: Record<string, unknown>;
+  evidence_refs: number[];
+  risk_points: number;
+}
+
+export interface VaccinationEvaluateResponse {
+  session_id: string;
+  merchant_id: string;
+  match: VaccinationMatchDetail;
+}
+
 export interface IncidentTimelineItem {
   type: string;
   plane: string;
@@ -404,6 +504,71 @@ export const api = {
 
   verifyEvidence(session: AuthSession) {
     return request<EvidenceVerification>(session, "/v1/evidence/verify");
+  },
+
+  listVaccinationSignatures(session: AuthSession, query: { status?: string; page?: number; page_size?: number } = {}) {
+    return request<VaccinationSignatureListResponse>(session, "/v1/vaccination/signatures", { query });
+  },
+
+  createVaccinationSignature(session: AuthSession, body: VaccinationSignatureCreateRequest) {
+    return request<VaccinationSignatureResponse>(session, "/v1/vaccination/signatures", {
+      method: "POST",
+      body,
+    });
+  },
+
+  vaccinationSignature(session: AuthSession, signatureId: string) {
+    return request<VaccinationSignatureResponse>(
+      session,
+      `/v1/vaccination/signatures/${encodeURIComponent(signatureId)}`,
+    );
+  },
+
+  approveVaccinationSignature(
+    session: AuthSession,
+    signatureId: string,
+    body: VaccinationSignatureActionRequest = {},
+  ) {
+    return request<VaccinationSignatureActionResponse>(
+      session,
+      `/v1/vaccination/signatures/${encodeURIComponent(signatureId)}/approve`,
+      { method: "POST", body },
+    );
+  },
+
+  rejectVaccinationSignature(
+    session: AuthSession,
+    signatureId: string,
+    body: VaccinationSignatureActionRequest = {},
+  ) {
+    return request<VaccinationSignatureActionResponse>(
+      session,
+      `/v1/vaccination/signatures/${encodeURIComponent(signatureId)}/reject`,
+      { method: "POST", body },
+    );
+  },
+
+  revokeVaccinationSignature(
+    session: AuthSession,
+    signatureId: string,
+    body: VaccinationSignatureActionRequest = {},
+  ) {
+    return request<VaccinationSignatureActionResponse>(
+      session,
+      `/v1/vaccination/signatures/${encodeURIComponent(signatureId)}/revoke`,
+      { method: "POST", body },
+    );
+  },
+
+  listVaccinationMatches(session: AuthSession, query: { page?: number; page_size?: number } = {}) {
+    return request<VaccinationMatchListResponse>(session, "/v1/vaccination/matches", { query });
+  },
+
+  evaluateVaccination(session: AuthSession, body: VaccinationEvaluateRequest) {
+    return request<VaccinationEvaluateResponse>(session, "/v1/vaccination/evaluate", {
+      method: "POST",
+      body,
+    });
   },
 
   systemContext(session: AuthSession) {

@@ -5,6 +5,7 @@ from app.models.agent import (
 )
 from app.models.base import Base, TimestampMixin
 from app.models.canary import CanaryRecord
+from app.models.domain_event import DomainEvent, DomainEventCursor
 from app.models.event import SecurityEvent
 from app.models.evidence import (
     EvidenceChainHead,
@@ -40,6 +41,8 @@ __all__ = [
     "AgentAuthorizationGrant",
     "AgenticCommerceAudit",
     "CanaryRecord",
+    "DomainEvent",
+    "DomainEventCursor",
     "EvidenceLogEntry",
     "EvidencePayload",
     "EvidenceChainHead",

@@ -44,6 +44,14 @@ The Trust Gateway acts as the authoritative control checkpoint for all sensitive
 - **Cross-Merchant Isolation**: Analysts are strictly scoped to their assigned merchant domain. Cross-merchant approval attempts are blocked.
 - **Non-Execution Invariant**: Incident approval only updates the review state and audit log; it does NOT automatically disengage isolation or execute payouts.
 
+### F. Domain Event Delivery
+- **Outbox atomicity**: User-visible domain events are inserted in the same SQL transaction as allowlisted business-record mutations. A rollback removes both the mutation and its notification.
+- **Tenant isolation**: Every event and cursor is keyed by the authoritative merchant ID. The stream query always filters by the authenticated principal's merchant; request parameters cannot select another tenant.
+- **Minimal payloads**: The outbox contains entity identifiers, change type, and an allowlist of operational status/risk fields. It never includes credentials, recipient addresses, idempotency keys, provider references, or raw event/evidence payloads.
+- **Replay integrity**: Per-tenant cursor-row locking serializes commits; reconnect uses the durable event ID and ascending replay. Events are retained for 30 days, after which the stream sends a reset signal that requires clients to refetch active read models.
+- **No authority transfer**: SSE only invalidates/refetches read models. It is not a provider receipt, payout-success proof, risk decision, or authorization grant.
+- **Egress boundary**: PayPal Sandbox and optional LLM traffic use the outbound proxy. PayPal remains restricted to its official Sandbox host. LLM egress is enabled only for the exact public hostname matching `AI_LLM_BASE_URL`; private, local, and link-local destinations are denied.
+
 ---
 
 ## 2. Boundaries and Non-Intercepted Surfaces

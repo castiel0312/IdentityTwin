@@ -42,6 +42,7 @@ from app.models.investigation import InvestigationRecord
 from app.models.principal import Merchant, User
 from app.models.session import SessionRecord
 from app.models.twin import BehavioralTwin, SessionRiskStateRecord
+from app.models.vaccination import VaccinationMatch, VaccinationSignature
 from app.schemas.incidents import IncidentSeverity, IncidentStatus
 from app.schemas.sessions import SessionStatus, TrustLevel
 
@@ -179,6 +180,8 @@ def reset_behavioral_state(db_session: Session) -> Generator[None, None, None]:
     db_session.query(EvidenceChainHead).delete()
     db_session.query(IncidentSeal).delete()
     db_session.query(CanaryRecord).delete()
+    db_session.query(VaccinationSignature).delete()
+    db_session.query(VaccinationMatch).delete()
     for honey_model in (
         HoneyActivityLog,
         HoneyApiCredential,

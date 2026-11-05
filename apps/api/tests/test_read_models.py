@@ -655,6 +655,113 @@ def test_risk_decisions_and_config(
     assert config.json()["thresholds"]["isolated"] == 90.0
 
 
+def test_decision_detail_reason_codes_include_latched_signal_from_ledger(
+    client: TestClient,
+    merchant_auth_headers: dict,
+    db_session: Session,
+):
+    """
+    Regression test for a display-consistency bug:
+
+    A session-scoped signal (UNUSUAL_TIME) can fire in an earlier evaluation,
+    be latched, and persist its contribution in the session risk ledger. A later
+    evaluation does not re-emit it, so the persisted RiskDecisionRecord's
+    reason_cases/risk_signals omit it. The detail view must still surface the
+    signal from the authoritative contribution ledger so reason codes remain
+    consistent with the stored contributions.
+    """
+    session_id = uuid.uuid4()
+    decision_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    # Session owned by the test merchant.
+    session = SessionRecord(
+        session_id=session_id,
+        user_id=TEST_USER_ID,
+        merchant_id=TEST_MERCHANT_ID,
+        trust_level=TrustLevel.NORMAL.value,
+        risk_score=27.0,
+        status="active",
+        device_fingerprint="device-unusual",
+        ip_address="203.0.113.10",
+        last_activity_at=now,
+    )
+    db_session.add(session)
+
+    # Ledger contribution from an earlier evaluation: UNUSUAL_TIME fired then
+    # and was latched; it is not re-emitted by the current evaluation.
+    unusual_contribution = {
+        "name": "UNUSUAL_TIME",
+        "points": 11.0,
+        "reason_code": "UNUSUAL_TRANSACTION_TIME",
+        "kind": "signal",
+        "event_id": str(uuid.uuid4()),
+        "occurred_at": now.isoformat(),
+        "latch_key": "UNUSUAL_TIME",
+        "detail": {},
+    }
+    state_record = SessionRiskStateRecord(
+        state_id=uuid.uuid4(),
+        session_id=session_id,
+        merchant_id=TEST_MERCHANT_ID,
+        user_id=TEST_USER_ID,
+        carried_forward=0.0,
+        raw_points_sum=27.0,
+        decay_points_total=0.0,
+        current_score=27.0,
+        canary_points=0.0,
+        contributions=[unusual_contribution],
+        latched_signals=["UNUSUAL_TIME"],
+        fired_payees=[],
+        registered_payees=[],
+        sequence_markers=[],
+        consumed_markers=[],
+        event_fingerprints=[],
+        canary_seen=False,
+        last_evaluated_at=now,
+    )
+    db_session.add(state_record)
+
+    # Persisted decision from the current evaluation: UNUSUAL_TIME is latched
+    # so it is not re-emitted here; only NEW_PAYEE fired plus the policy code.
+    decision = RiskDecisionRecord(
+        decision_id=decision_id,
+        session_id=session_id,
+        merchant_id=TEST_MERCHANT_ID,
+        risk_score=27.0,
+        trust_level=TrustLevel.NORMAL.value,
+        action="ALLOW",
+        routing_destination="PROVIDER_MOCK",
+        reason_codes=["NEW_PAYEE_DESTINATION", "NORMAL_TRUST_ELIGIBLE"],
+        risk_signals={"NEW_PAYEE": 16.0},
+        evaluated_at=now,
+    )
+    db_session.add(decision)
+    db_session.commit()
+
+    detail = client.get(
+        f"/v1/risk/decisions/{decision_id}",
+        headers=merchant_auth_headers,
+    )
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+
+    # The signal reason code from the ledger is present even though the current
+    # evaluation did not re-emit it.
+    assert "UNUSUAL_TRANSACTION_TIME" in body["decision"]["reason_codes"], body
+    assert "NEW_PAYEE_DESTINATION" in body["decision"]["reason_codes"], body
+    assert "NORMAL_TRUST_ELIGIBLE" in body["decision"]["reason_codes"], body
+
+    # The risk signals summary also reflects the ledger contribution.
+    signals = {s["name"]: s["weight"] for s in body["signals"]}
+    assert "UNUSUAL_TIME" in signals, body
+    assert signals["UNUSUAL_TIME"] == 11.0, body
+
+    # Contributions still show the ledger entry.
+    contribution_names = {c["name"] for c in body["contributions"]}
+    assert "UNUSUAL_TIME" in contribution_names, body
+
+
 def test_simulation_scenarios_and_calibration(
     client: TestClient,
     merchant_auth_headers: dict,

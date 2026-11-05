@@ -7,7 +7,7 @@ import pytest
 
 import app.intent.llm as intent_llm
 import app.investigation.llm as investigation_llm
-from app.core.config import settings
+from app.core.config import Settings, settings
 
 
 def _chat_response(payload: dict) -> bytes:
@@ -211,3 +211,26 @@ def test_provider_timeout_uses_fallback(provider_server, monkeypatch: pytest.Mon
         )
         is None
     )
+
+
+def test_llm_configuration_requires_an_exact_egress_host():
+    configuration = {
+        "AI_LLM_ENABLED": True,
+        "AI_LLM_BASE_URL": "https://narrator.example.com/v1",
+        "AI_LLM_API_KEY": "controlled-test-key",
+        "AI_LLM_MODEL": "controlled-test-model",
+    }
+
+    configured = Settings(
+        _env_file=None,
+        **configuration,
+        AI_LLM_EGRESS_HOST="narrator.example.com",
+    )
+    assert configured.AI_LLM_EGRESS_HOST == "narrator.example.com"
+
+    with pytest.raises(ValueError, match="AI_LLM_EGRESS_HOST"):
+        Settings(
+            _env_file=None,
+            **configuration,
+            AI_LLM_EGRESS_HOST="other.example.com",
+        )

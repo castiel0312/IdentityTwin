@@ -7,7 +7,7 @@
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-red.svg)](https://www.sqlalchemy.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-469%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-618%20Passed-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)]()
 
 ---
@@ -198,6 +198,39 @@ The console runs on `http://127.0.0.1:5173` and proxies `/v1` to the API. Use
 the development personas on the login page. See [`frontend/README.md`](frontend/README.md)
 for production token login, test commands and security limitations.
 
+## 4. Docker Compose deployment (verified)
+
+`docker compose up -d` builds and starts the API, PostgreSQL, nginx gateway,
+squid PayPal egress proxy, and the React console. Verified behavior:
+
+- All services become healthy: `db`, `api`, `gateway`, `console`, `paypal-egress`.
+- Health checks: `GET /health` and `GET /ready` (via gateway) return 200;
+  `/ready` reports `database: connected`.
+- The API connects to PostgreSQL over the private Docker network via
+  `db:5432` (not `localhost`). PostgreSQL is **not** published to the host
+  because `identitytwin_private` is an internal network; connect with
+  `docker compose exec db psql -U identitytwin_user -d identitytwin` if direct
+  DB access is needed.
+- On API startup, `alembic upgrade head` runs, then the idempotent
+  `scripts/seed_demo.py` populates demo merchants, users, sessions, incidents,
+  agent, honey workspaces, canaries, and evidence. Re-running is safe (no
+  duplicate records).
+- Host ports: gateway `127.0.0.1:8001→8000`, console `127.0.0.1:3001→80`.
+  These differ from the documented defaults (`8000`/`3000`) on this host because
+  a co-located stack occupies those ports; override with
+  `IDENTITYTWIN_API_PORT` and `IDENTITYTWIN_CONSOLE_PORT`.
+- Do not run `docker compose down -v` (that destroys the PostgreSQL volume and
+  user data). Use `docker compose down` (volume-preserving) or `docker compose
+  stop`/`start`.
+
+PayPal Sandbox is reachable through the squid egress proxy
+(`paypal-egress:3128` → `api-m.sandbox.paypal.com:443` only). Select
+`PAYMENT_PROVIDER=paypal_sandbox` with valid sandbox credentials to exercise
+the real provider; the sandbox account used here is country-restricted, so a
+completed payout was not demonstrated (genuine `403 PAYOUT_NOT_AVAILABLE`
+verified). The default `PAYMENT_PROVIDER=mock` requires no credentials and never
+contacts the network.
+
 ---
 
 ## 5. Automated Tests & Quality Checks
@@ -312,6 +345,7 @@ To connect live PayPal Sandbox credentials for demo execution:
 1. **Sandbox-Only Boundary**: The system is restricted to the PayPal Sandbox. The only accepted `PAYPAL_BASE_URL` is `https://api-m.sandbox.paypal.com`; the settings initializer rejects every production, lookalike, malformed or insecure value (see `apps/api/app/core/config.py`) and the adapter re-validates any programmatic override that is not paired with a mocked test transport. This is a configuration boundary, not a guarantee that live PayPal behaviour has been verified — see `docs/p3-paypal-integration-handoff.md` for what is tested versus untested against the real Sandbox.
 2. **Development Authentication**: Uses static Bearer tokens and `X-Dev-*` headers for rapid local testing. In production (`ENVIRONMENT=production`), development authentication is strictly rejected; enterprise OIDC/OAuth2 with cryptographic JWKS validation must be configured.
 3. **Canary Interaction Protection**: Any canary interaction immediately triggers Level 3 isolation, revokes the user session, and records an auditable incident regardless of initial risk score.
+4. **Known limitations**: Security Vaccination and the second-merchant earlier-detection demo are not yet implemented; a completed PayPal sandbox payout was not demonstrated because the sandbox account is country-restricted (genuine `403 PAYOUT_NOT_AVAILABLE` verified). See `docs/KNOWN_LIMITATIONS.md` for the full list and the honest test statuses in `docs/INTEGRATION_TEST_REPORT.md` and `docs/SECURITY_TEST_REPORT.md`.
 
 
 

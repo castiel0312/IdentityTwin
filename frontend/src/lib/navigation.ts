@@ -5,6 +5,7 @@ import {
   Fingerprint,
   FlaskConical,
   LayoutDashboard,
+  ShieldAlert,
   Settings,
   Siren,
   Sparkles,
@@ -105,6 +106,14 @@ const simulationItem: NavItem = {
   icon: FlaskConical,
 };
 
+const vaccinationItem: NavItem = {
+  group: "Containment",
+  to: "/vaccination",
+  label: "Vaccination",
+  description: "Behavioral attack signatures",
+  icon: ShieldAlert,
+};
+
 const systemItem: NavItem = {
   group: "Administration",
   to: "/system",
@@ -123,6 +132,7 @@ export const NAV_ITEMS: NavItem[] = [
   evidenceItem,
   agentsItem,
   simulationItem,
+  vaccinationItem,
   systemItem,
 ];
 

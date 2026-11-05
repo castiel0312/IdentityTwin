@@ -10,8 +10,8 @@ import {
   Siren,
   Users,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useOutletContext } from "react-router-dom";
 import {
   Area,
   AreaChart,
@@ -31,7 +31,7 @@ import { ErrorState } from "@/components/common/error-state";
 import { CardsLoading, TableLoading } from "@/components/common/loading-state";
 import { StatCard } from "@/components/common/stat-card";
 import { TrustBadge, StatusBadge } from "@/components/common/badges";
-import { LiveContainmentStream } from "@/features/overview/live-stream";
+import { LiveDomainEventStream } from "@/features/overview/live-stream";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,17 +40,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, type Schema } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDateTime, formatMoney, formatNumber, humanizeCode, relativeTime } from "@/lib/format";
+import { createOverviewRange, type OverviewRange } from "@/lib/overview-range";
 import { cn } from "@/lib/utils";
+import type { ContainmentStream } from "@/lib/sse";
 
-type RangeKey = "24h" | "7d" | "30d";
+type RangeKey = OverviewRange;
 
 const RANGE_LABELS: Record<RangeKey, string> = {
   "24h": "Last 24 hours",
   "7d": "Last 7 days",
   "30d": "Last 30 days",
 };
-
-const HOURS: Record<RangeKey, number> = { "24h": 24, "7d": 24 * 7, "30d": 24 * 30 };
 
 const CHART = {
   orange: "#FF4D2E",
@@ -105,16 +105,12 @@ function riskBandColor(minScore: number): string {
 
 export function OverviewPage() {
   const { session } = useAuth();
+  const stream = useOutletContext<ContainmentStream>();
   const [range, setRange] = useState<RangeKey>("24h");
-  const windowRange = useMemo(() => {
-    const end = new Date();
-    const start = new Date(end.getTime() - HOURS[range] * 3_600_000);
-    return { start: start.toISOString(), end: end.toISOString() };
-  }, [range]);
 
   const query = useQuery({
     queryKey: ["analytics-overview", range],
-    queryFn: () => api.overview(session!, windowRange),
+    queryFn: () => api.overview(session!, createOverviewRange(range)),
     enabled: Boolean(session),
     refetchInterval: 60_000,
   });
@@ -477,7 +473,7 @@ export function OverviewPage() {
         </Card>
 
         <div className="space-y-4">
-          <LiveContainmentStream />
+          <LiveDomainEventStream stream={stream} />
           <Card>
             <CardHeader className="space-y-1">
               <CardTitle>Provider outcomes</CardTitle>

@@ -1,136 +1,104 @@
+"""Authenticated SSE delivery backed by the transactional domain-event outbox."""
+
 import asyncio
 import json
-import threading
-from collections import defaultdict, deque
+import re
+import time
 from dataclasses import dataclass
-from time import time_ns
 from uuid import UUID
 
 from starlette.requests import Request
 
+from app.db.session import SessionLocal
+from app.models.domain_event import DomainEvent, DomainEventCursor
+
+_EVENT_ID_PATTERN = re.compile(r"^[0-9]{1,19}$")
+_MAX_EVENT_ID = 9_223_372_036_854_775_807
+_POLL_INTERVAL_SECONDS = 0.5
+_HEARTBEAT_SECONDS = 15
+_REPLAY_BATCH_SIZE = 100
+
 
 @dataclass(frozen=True)
-class ContainmentEvent:
+class StreamMessage:
     event_id: int
-    merchant_id: UUID
-    incident_id: UUID
-    session_id: UUID
-    severity: str
-    status: str
+    event_type: str
+    payload: dict
 
     def as_sse(self) -> str:
-        data = json.dumps(
-            {
-                "incident_id": str(self.incident_id),
-                "session_id": str(self.session_id),
-                "severity": self.severity,
-                "status": self.status,
-            },
-            separators=(",", ":"),
-        )
-        return f"id: {self.event_id}\nevent: incident.contained\ndata: {data}\n\n"
+        body = json.dumps(self.payload, separators=(",", ":"), sort_keys=True)
+        return f"id: {self.event_id}\nevent: {self.event_type}\ndata: {body}\n\n"
 
 
-@dataclass(eq=False)
-class EventSubscriber:
-    loop: asyncio.AbstractEventLoop
-    events: asyncio.Queue[ContainmentEvent]
-    last_event_id: int
-
-
-class ContainmentEventBus:
-    """Best-effort in-process SSE fan-out; evidence and incidents remain durable."""
-
-    def __init__(self, history_size: int = 100, subscriber_queue_size: int = 100):
-        self._lock = threading.Lock()
-        self._next_id = time_ns()
-        self._history: deque[ContainmentEvent] = deque(maxlen=history_size)
-        self._subscribers: dict[UUID, set[EventSubscriber]] = defaultdict(set)
-        self._subscriber_queue_size = subscriber_queue_size
-
-    def publish(
-        self,
-        merchant_id: UUID,
-        incident_id: UUID,
-        session_id: UUID,
-        severity: str,
-        status: str,
-    ) -> ContainmentEvent:
-        with self._lock:
-            event = ContainmentEvent(
-                event_id=self._next_id,
-                merchant_id=merchant_id,
-                incident_id=incident_id,
-                session_id=session_id,
-                severity=severity,
-                status=status,
+def _read_events(merchant_id: UUID, after_event_id: int) -> tuple[list[DomainEvent], int | None, int]:
+    with SessionLocal() as db:
+        current_id = db.get(DomainEventCursor, merchant_id)
+        current = current_id.last_event_id if current_id else 0
+        oldest = db.query(DomainEvent.event_id).filter(
+            DomainEvent.merchant_id == merchant_id
+        ).order_by(DomainEvent.event_id.asc()).limit(1).scalar()
+        rows = (
+            db.query(DomainEvent)
+            .filter(
+                DomainEvent.merchant_id == merchant_id,
+                DomainEvent.event_id > after_event_id,
             )
-            self._next_id += 1
-            self._history.append(event)
-            for subscriber in self._subscribers.get(merchant_id, ()):
-                subscriber.loop.call_soon_threadsafe(self._enqueue, subscriber, event)
-            return event
-
-    def subscribe(
-        self,
-        merchant_id: UUID,
-        after_event_id: int,
-        loop: asyncio.AbstractEventLoop,
-    ) -> EventSubscriber:
-        subscriber = EventSubscriber(
-            loop=loop,
-            events=asyncio.Queue(maxsize=self._subscriber_queue_size),
-            last_event_id=after_event_id,
+            .order_by(DomainEvent.event_id.asc())
+            .limit(_REPLAY_BATCH_SIZE)
+            .all()
         )
-        with self._lock:
-            replay = [
-                event
-                for event in self._history
-                if event.merchant_id == merchant_id and event.event_id > after_event_id
-            ]
-            for event in replay:
-                self._enqueue(subscriber, event)
-            self._subscribers[merchant_id].add(subscriber)
-        return subscriber
-
-    def unsubscribe(self, merchant_id: UUID, subscriber: EventSubscriber) -> None:
-        with self._lock:
-            subscribers = self._subscribers.get(merchant_id)
-            if subscribers is None:
-                return
-            subscribers.discard(subscriber)
-            if not subscribers:
-                self._subscribers.pop(merchant_id, None)
-
-    @staticmethod
-    def _enqueue(subscriber: EventSubscriber, event: ContainmentEvent) -> None:
-        if event.event_id <= subscriber.last_event_id:
-            return
-        try:
-            subscriber.events.put_nowait(event)
-        except asyncio.QueueFull:
-            try:
-                subscriber.events.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            subscriber.events.put_nowait(event)
-        subscriber.last_event_id = event.event_id
+        return rows, oldest, current
 
 
-containment_event_bus = ContainmentEventBus()
+def _valid_cursor(value: str) -> int:
+    if not _EVENT_ID_PATTERN.fullmatch(value):
+        raise ValueError("Last-Event-ID must be a non-negative decimal integer.")
+    parsed = int(value)
+    if parsed > _MAX_EVENT_ID:
+        raise ValueError("Last-Event-ID exceeds the supported range.")
+    return parsed
 
 
-async def stream_containment_events(request: Request, merchant_id: UUID, after_event_id: int):
-    subscriber = containment_event_bus.subscribe(
-        merchant_id, after_event_id, asyncio.get_running_loop()
-    )
-    try:
-        while not await request.is_disconnected():
-            try:
-                event = await asyncio.wait_for(subscriber.events.get(), timeout=15)
-            except TimeoutError:
-                yield ": keep-alive\n\n"
-            else:
-                yield event.as_sse()
-    finally:
-        containment_event_bus.unsubscribe(merchant_id, subscriber)
+async def stream_domain_events(request: Request, merchant_id: UUID, after_event_id: int):
+    """Stream ordered tenant events, recovering from retained outbox rows on reconnect."""
+    cursor = after_event_id
+    last_heartbeat = time.monotonic()
+    while not await request.is_disconnected():
+        rows, oldest_id, current_id = await asyncio.to_thread(_read_events, merchant_id, cursor)
+
+        if cursor > current_id:
+            cursor = current_id
+            yield StreamMessage(
+                cursor,
+                "stream.reset",
+                {"reason": "cursor_ahead", "current_event_id": str(current_id)},
+            ).as_sse()
+            continue
+
+        if oldest_id is not None and cursor < oldest_id - 1:
+            cursor = oldest_id - 1
+            yield StreamMessage(
+                cursor,
+                "stream.reset",
+                {"reason": "retention_gap", "oldest_event_id": str(oldest_id)},
+            ).as_sse()
+            continue
+        if oldest_id is None and cursor < current_id:
+            cursor = current_id
+            yield StreamMessage(
+                cursor,
+                "stream.reset",
+                {"reason": "retention_gap", "current_event_id": str(current_id)},
+            ).as_sse()
+            continue
+
+        if rows:
+            for row in rows:
+                cursor = row.event_id
+                yield StreamMessage(row.event_id, row.event_type, row.payload).as_sse()
+            continue
+
+        if time.monotonic() - last_heartbeat >= _HEARTBEAT_SECONDS:
+            yield ": keep-alive\n\n"
+            last_heartbeat = time.monotonic()
+        await asyncio.sleep(_POLL_INTERVAL_SECONDS)

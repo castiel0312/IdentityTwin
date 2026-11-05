@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from collections.abc import AsyncGenerator
@@ -17,6 +18,7 @@ from app.gateway.reconciliation_worker import ReconciliationWorker
 from app.gateway.service import create_gateway_service
 from app.honey.api import provider_router
 from app.honey.api import router as honey_router
+from app.services.domain_events import prune_expired_domain_events
 
 # Configure structured logging without sensitive payment credentials or auth tokens
 logging.basicConfig(
@@ -28,6 +30,18 @@ logger = logging.getLogger("identitytwin.api")
 # Background reconciliation worker (started with the application, stopped on
 # shutdown). One worker instance per API process.
 reconciliation_worker: ReconciliationWorker | None = None
+domain_event_retention_task: asyncio.Task[None] | None = None
+
+
+async def _run_domain_event_retention() -> None:
+    while True:
+        await asyncio.sleep(6 * 60 * 60)
+        try:
+            pruned_events = await asyncio.to_thread(prune_expired_domain_events)
+            if pruned_events:
+                logger.info("Pruned expired domain events: %s", pruned_events)
+        except Exception:
+            logger.exception("Domain event retention cleanup failed.")
 
 
 @asynccontextmanager
@@ -36,6 +50,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Initializing IdentityTwin Trust Gateway API...")
     # Initialize DB tables for rapid local development/testing fallback
     init_db()
+    pruned_events = prune_expired_domain_events()
+    if pruned_events:
+        logger.info("Pruned expired domain events: %s", pruned_events)
+    global domain_event_retention_task
+    domain_event_retention_task = asyncio.create_task(_run_domain_event_retention())
     # Configure default rate limits
     configure_default_limits()
 
@@ -51,6 +70,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Shutting down IdentityTwin API...")
     if reconciliation_worker is not None:
         await reconciliation_worker.stop()
+    if domain_event_retention_task is not None:
+        domain_event_retention_task.cancel()
+        try:
+            await domain_event_retention_task
+        except asyncio.CancelledError:
+            pass
 
 
 def create_application() -> FastAPI:

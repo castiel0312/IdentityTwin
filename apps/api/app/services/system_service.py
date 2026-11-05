@@ -83,9 +83,12 @@ def build_system_context(
         ),
         CapabilityView(
             id="sse_events",
-            name="Containment event stream",
+            name="Tenant-scoped domain event stream",
             available=True,
-            detail="Authenticated SSE at /v1/events/stream with bounded reconnect.",
+            detail=(
+                "Authenticated SSE at /v1/events/stream with durable ordered replay "
+                "for 30 days."
+            ),
         ),
         CapabilityView(
             id="oidc",

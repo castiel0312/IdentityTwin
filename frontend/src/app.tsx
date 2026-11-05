@@ -22,6 +22,7 @@ import { SessionDetailPage } from "@/pages/session-detail";
 import { SessionsPage } from "@/pages/sessions";
 import { SimulationPage } from "@/pages/simulation";
 import { SystemPage } from "@/pages/system";
+import { VaccinationPage } from "@/pages/vaccination";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -62,6 +63,7 @@ export function App() {
         <Route path="agents/:agentId" element={<AgentDetailPage />} />
         <Route path="simulation" element={<SimulationPage />} />
         <Route path="system" element={<SystemPage />} />
+        <Route path="vaccination" element={<VaccinationPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
