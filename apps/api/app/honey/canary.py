@@ -9,6 +9,8 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.secrets import get_canary_hmac_secret
+from app.core.security import AuthenticatedPrincipal
+from app.evidence.hashchain import EvidenceChain
 from app.models.canary import CanaryRecord
 from app.models.session import SessionRecord
 
@@ -118,7 +120,11 @@ class CanaryRegistryService:
                 for kind in _CANARY_KINDS
             ]
 
-    def check(self, observation: Any) -> dict[str, Any] | None:
+    def check(
+        self,
+        observation: Any,
+        principal: AuthenticatedPrincipal | None = None,
+    ) -> dict[str, Any] | None:
         # observation can be dict with various fields
         candidates = []
         if isinstance(observation, dict):
@@ -178,6 +184,11 @@ class CanaryRegistryService:
                 except (TypeError, ValueError):
                     continue
                 if not (same_session and same_merchant and same_identity):
+                    # Cross-session/merchant/identity reuse detected
+                    # Log security event but do NOT disarm the canary or return a hit
+                    # This prevents an attacker from using their canary to isolate a victim session
+                    if principal is not None:
+                        self._log_cross_session_reuse(rec, observation, principal)
                     continue
                 rec.armed = False
                 rec.triggered_at = datetime.now(timezone.utc)
@@ -199,3 +210,36 @@ class CanaryRegistryService:
                     "matched_in": rec.trigger_meta.get("matched_in"),
                 }
         return None
+
+    def _log_cross_session_reuse(
+        self,
+        canary: CanaryRecord,
+        observation: dict,
+        principal: AuthenticatedPrincipal,
+    ) -> None:
+        """Log cross-session canary reuse attempt as a security event."""
+        try:
+            obs_sid = observation.get("session_id")
+            obs_merchant = observation.get("merchant_id")
+            obs_identity = observation.get("identity_id")
+            evidence_payload = {
+                "type": "canary_cross_session_reuse",
+                "canary_id": str(canary.canary_id),
+                "canary_kind": canary.kind,
+                "canary_tag": canary.tag,
+                "canary_session_id": str(canary.session_id) if canary.session_id else None,
+                "canary_merchant_id": str(canary.merchant_id) if canary.merchant_id else None,
+                "canary_identity_id": str(canary.identity_id) if canary.identity_id else None,
+                "observed_session_id": str(obs_sid) if obs_sid else None,
+                "observed_merchant_id": str(obs_merchant) if obs_merchant else None,
+                "observed_identity_id": str(obs_identity) if obs_identity else None,
+                "requesting_merchant_id": str(principal.merchant_id),
+                "requesting_user_id": str(principal.user_id),
+                "matched_in": observation.get("matched_in")
+                if isinstance(observation, dict)
+                else "unknown",
+            }
+            EvidenceChain(self.db).append("canary_cross_session_reuse", evidence_payload)
+        except Exception:
+            # Best effort logging; don't let logging failures affect canary logic
+            pass

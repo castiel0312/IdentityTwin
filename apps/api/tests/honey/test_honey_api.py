@@ -179,12 +179,8 @@ def test_honey_canary_issuance_is_repeatable(client, merchant_auth_headers, db_s
 
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
-    api_canary = (
-        db_session.query(CanaryRecord)
-        .filter_by(session_id=uuid.UUID(session_id), kind="api_credential")
-        .one()
-    )
-    assert all(app["client_secret"] == api_canary.secret_value for app in first.json()["items"])
+    # Canary secrets are no longer exposed in the apps list
+    assert all(app["client_secret"] == "HIDDEN" for app in first.json()["items"])
 
     export = client.get(
         f"/v1/honey/invoices/export?session_id={session_id}&identity_id={identity_id}&format=json",
@@ -204,11 +200,18 @@ def test_canary_reveal_isolates_session_and_seals_incident(
 ):
     session_id = str(NORMAL_SESSION_ID)
     identity_id = str(TEST_USER_ID)
+    # First call apps endpoint to trigger canary issuance
     apps_url = f"/v1/honey/developer/apps?session_id={session_id}&identity_id={identity_id}"
-    issued = client.get(apps_url, headers=merchant_auth_headers)
-    assert issued.status_code == 200
-    secret = issued.json()["items"][0]["client_secret"]
+    client.get(apps_url, headers=merchant_auth_headers)
+    # Get the real canary secret from the database (not exposed via API)
+    api_canary = (
+        db_session.query(CanaryRecord)
+        .filter_by(session_id=uuid.UUID(session_id), kind="api_credential")
+        .one()
+    )
+    secret = api_canary.secret_value
 
+    # Submitting a canary secret to any honey endpoint triggers middleware detection
     response = client.post(
         "/v1/honey/developer/credentials/reveal",
         json={
@@ -218,6 +221,7 @@ def test_canary_reveal_isolates_session_and_seals_incident(
         },
         headers=merchant_auth_headers,
     )
+    # Middleware detects canary and returns 403 before reaching the endpoint
     assert response.status_code == 403
     assert "canary" not in response.text.lower()
 
@@ -240,14 +244,21 @@ def test_canary_from_another_session_cannot_isolate_target_session(
     source_session_id = str(NORMAL_SESSION_ID)
     target_session_id = str(uuid.UUID("33333333-3333-3333-3333-333333333333"))
     identity_id = str(TEST_USER_ID)
-    issued = client.get(
+    # First call apps endpoint for source session to trigger canary issuance
+    client.get(
         "/v1/honey/developer/apps",
         params={"session_id": source_session_id, "identity_id": identity_id},
         headers=merchant_auth_headers,
     )
-    assert issued.status_code == 200
-    secret = issued.json()["items"][0]["client_secret"]
+    # Get the real canary secret from the source session's database record
+    api_canary = (
+        db_session.query(CanaryRecord)
+        .filter_by(session_id=uuid.UUID(source_session_id), kind="api_credential")
+        .one()
+    )
+    secret = api_canary.secret_value
 
+    # Attempt to use source session's canary with target session's ID
     response = client.post(
         "/v1/honey/developer/credentials/reveal",
         json={
@@ -257,8 +268,13 @@ def test_canary_from_another_session_cannot_isolate_target_session(
         },
         headers=merchant_auth_headers,
     )
-    assert response.status_code == 200
+    # Middleware detects canary but observes session_id mismatch
+    # Cross-session reuse is logged but does NOT isolate the target session
+    # The canary belongs to source_session, so source_session would be contained if sessions matched
+    # Since observed session (target) != canary session (source), no hit is returned
+    assert response.status_code == 200  # No canary hit for cross-session reuse
 
+    # Target session should remain unaffected
     target_session = db_session.get(SessionRecord, uuid.UUID(target_session_id))
     assert target_session.status == "active"
     assert target_session.trust_level == "RESTRICTED"
@@ -268,6 +284,7 @@ def test_canary_from_another_session_cannot_isolate_target_session(
         .count()
         == 0
     )
+    # Source session's canary should remain armed (not triggered by cross-session attempt)
     canary = (
         db_session.query(CanaryRecord)
         .filter_by(session_id=uuid.UUID(source_session_id), kind="api_credential")

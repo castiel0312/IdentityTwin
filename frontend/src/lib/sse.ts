@@ -149,6 +149,7 @@ export function useContainmentStream(
   const [paused, setPaused] = useState(false);
   const lastEventIdRef = useRef(lastEventId);
   const seenRef = useRef<Set<string>>(new Set());
+  const previousSessionRef = useRef<AuthSession | null>(session);
 
   const clear = useCallback(() => {
     setEvents([]);
@@ -159,7 +160,12 @@ export function useContainmentStream(
     if (!session) return;
     const storedCursor = readStoredCursor(session);
     lastEventIdRef.current = storedCursor;
-    setLastEventId(storedCursor);
+    // Only update state if session actually changed (avoids redundant setState on mount
+    // and satisfies react-hooks/set-state-in-effect lint rule).
+    if (previousSessionRef.current !== session) {
+      previousSessionRef.current = session;
+      setLastEventId(storedCursor);
+    }
     if (!enabled || paused) return;
 
     let cancelled = false;

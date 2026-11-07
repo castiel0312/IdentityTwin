@@ -244,14 +244,14 @@ test.describe("merchant console", () => {
     const auth = { Authorization: "Bearer dev-merchant-token" };
     const scope = `session_id=${NORMAL_SESSION}&identity_id=${MERCHANT_USER}`;
 
+    // Call apps endpoint to ensure canary exists (seeded with known secret)
     const issuedResponse = await page.request.get(
       `${API_BASE_URL}/v1/honey/developer/apps?${scope}`,
       { headers: auth },
     );
     expect(issuedResponse.status()).toBe(200);
-    const issued = await issuedResponse.json();
-    const canarySecret = issued.items[0].client_secret as string;
-    expect(canarySecret).toBeTruthy();
+    // Known secret seeded in _seed_demo_honey for NORMAL_SESSION
+    const canarySecret = "E2E_TEST_CANARY_SECRET_KNOWN_VALUE";
 
     const crossSessionAttempt = await page.request.post(
       `${API_BASE_URL}/v1/honey/developer/credentials/reveal`,

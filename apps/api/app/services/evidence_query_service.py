@@ -90,7 +90,10 @@ def get_seal_detail(
             message="Evidence seal not found.", code="EVIDENCE_SEAL_NOT_FOUND"
         )
     incident = db.get(IncidentRecord, seal.incident_id)
-    rows = (
+
+    # Query ALL entries in the seal's sequence range for hash-chain verification
+    # This ensures we can verify the integrity of the full chain
+    all_rows = (
         db.execute(
             select(EvidenceLogEntry, EvidencePayload)
             .join(EvidencePayload, EvidencePayload.seq == EvidenceLogEntry.seq)
@@ -104,11 +107,16 @@ def get_seal_detail(
         else []
     )
 
-    owned_rows = [
+    # Filter to only authorized entries for the response (tenant/session isolation)
+    # The seal is scoped to a specific session and merchant
+    authorized_rows = [
         (entry, payload)
-        for entry, payload in rows
-        if str((payload.payload or {}).get("session_id")) == str(seal.session_id)
+        for entry, payload in all_rows
+        if entry.merchant_id == seal.merchant_id
+        and entry.session_id == seal.session_id
+        and str((payload.payload or {}).get("session_id")) == str(seal.session_id)
     ]
+
     entries = [
         EvidenceEntryView(
             seq=entry.seq,
@@ -119,9 +127,10 @@ def get_seal_detail(
             created_at=entry.created_at,
             payload=redact(dict(payload.payload or {})),
         )
-        for entry, payload in owned_rows
+        for entry, payload in authorized_rows
     ]
 
+    # Verify the FULL hash chain (including foreign entries) to ensure integrity
     previous = db.get(EvidenceLogEntry, seal.start_seq - 1) if seal.start_seq > 1 else None
     expected_prev = previous.hash if previous else GENESIS_PREV_HASH
     verification = SealVerificationView(
@@ -129,7 +138,7 @@ def get_seal_detail(
         checked=0,
         head_matches=False,
     )
-    if not rows:
+    if not all_rows:
         verification = SealVerificationView(
             valid=False,
             checked=0,
@@ -139,7 +148,7 @@ def get_seal_detail(
         )
     else:
         expected_seq = seal.start_seq
-        for entry, payload in rows:
+        for entry, payload in all_rows:
             if entry.seq != expected_seq:
                 verification = SealVerificationView(
                     valid=False,
@@ -184,7 +193,7 @@ def get_seal_detail(
         else:
             verification = SealVerificationView(
                 valid=expected_prev == seal.head_hash,
-                checked=len(rows),
+                checked=len(all_rows),
                 reason=(None if expected_prev == seal.head_hash else "seal_head_mismatch"),
                 head_matches=expected_prev == seal.head_hash,
                 first_broken_seq=None,

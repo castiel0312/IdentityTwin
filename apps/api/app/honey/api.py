@@ -18,6 +18,9 @@ from app.honey.payouts import IdempotencyConflictError, create_synthetic_payout
 from app.models.session import SessionRecord
 from app.schemas.sessions import SessionStatus
 
+# Maximum request body size to inspect for canaries (1 MB)
+MAX_CANARY_INSPECTION_SIZE = 1024 * 1024
+
 
 async def check_canary_request(
     request: Request,
@@ -25,11 +28,41 @@ async def check_canary_request(
     honey_db: Session = Depends(get_honey_db),
     principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> None:
+    # Read and cache the request body so downstream handlers can still access it
     body_bytes = await request.body()
+    # Store in request._body so subsequent request.body() calls return the cached value
+    request._body = body_bytes
+
+    # Enforce maximum inspection size to prevent DoS
+    if len(body_bytes) > MAX_CANARY_INSPECTION_SIZE:
+        # For oversized bodies, we still allow the request to proceed but log the event
+        # The body is still cached for downstream handlers
+        body_for_inspection = body_bytes[:MAX_CANARY_INSPECTION_SIZE]
+        # Log oversized body event for monitoring
+        oversized_payload = {
+            "type": "canary_inspection_oversized",
+            "content_length": len(body_bytes),
+            "max_inspection_size": MAX_CANARY_INSPECTION_SIZE,
+            "path": request.url.path,
+            "session_id": request.query_params.get("session_id"),
+            "merchant_id": str(principal.merchant_id),
+        }
+        # Use a separate DB session or fire-and-forget for logging to avoid blocking
+        # For now, append to evidence chain
+        try:
+            from app.evidence.hashchain import EvidenceChain
+            EvidenceChain(db).append("canary_inspection_oversized", oversized_payload)
+        except Exception:
+            pass
+    else:
+        body_for_inspection = body_bytes
+
     try:
-        body = json.loads(body_bytes) if body_bytes else {}
+        body = json.loads(body_for_inspection) if body_for_inspection else {}
     except json.JSONDecodeError:
-        body = body_bytes.decode("utf-8", errors="replace")[:8192]
+        # For non-JSON bodies, decode as text for string extraction
+        # Limit to the inspection size (already bounded)
+        body = body_for_inspection.decode("utf-8", errors="replace")
 
     session_id = request.query_params.get("session_id")
     if isinstance(body, dict):
@@ -82,7 +115,7 @@ async def check_canary_request(
         "merchant_id": str(principal.merchant_id),
         "matched_in": request.url.path,
     }
-    hit = CanaryRegistryService(db).check(observation)
+    hit = CanaryRegistryService(db).check(observation, principal)
     if hit:
         hit["incident_id"] = contain_canary_hit(db, hit, principal)
         raise HTTPException(status_code=403, detail="This request was blocked.")
@@ -425,15 +458,14 @@ def list_apps(
 ):
     world = get_or_create_world(honey_db, session_id, identity_id)
     reg = CanaryRegistryService(db)
-    issued = reg.issue(session_id, identity_id, str(principal.merchant_id))
-    api_credential = next((item for item in issued if item["kind"] == "api_credential"), None)
+    reg.issue(session_id, identity_id, str(principal.merchant_id))
     apps = []
     for app in world["api_credentials"]:
         apps.append(
             {
                 "client_id": app["client_id"],
                 "name": app["name"],
-                "client_secret": api_credential["secret_value"] if api_credential else "HIDDEN",
+                "client_secret": "HIDDEN",
             }
         )
     append_honey_evidence(
@@ -447,19 +479,23 @@ def list_apps(
 @router.post("/developer/credentials/reveal")
 async def reveal_creds(request: Request, db: Session = Depends(get_db)):
     body = await request.json()
-    secret = body.get("client_secret") or body.get("secret")
+    _ = body.get("client_secret") or body.get("secret")  # Consumed for canary detection via middleware
     hit = getattr(request.state, "canary_hit", None)
-    if not hit:
-        append_honey_evidence(
-            db,
-            "honey_action",
-            {
-                "type": "honey_action",
-                "session_id": body.get("session_id") or request.query_params.get("session_id"),
-                "resource": "developer.credentials.reveal",
-            },
-        )
-    return {"revealed": True, "secret": secret}
+    if hit:
+        # Canary was already detected by middleware and would have raised 403
+        # This path should not be reached, but handle defensively
+        return {"revealed": False, "error": "Canary interaction detected"}
+    # For non-canary secrets, acknowledge without echoing the secret
+    append_honey_evidence(
+        db,
+        "honey_action",
+        {
+            "type": "honey_action",
+            "session_id": body.get("session_id") or request.query_params.get("session_id"),
+            "resource": "developer.credentials.reveal",
+        },
+    )
+    return {"revealed": True}
 
 
 @router.post("/developer/token")

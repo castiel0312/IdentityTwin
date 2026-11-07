@@ -916,6 +916,33 @@ def _seed_demo_honey(db, now: datetime) -> None:
         CanaryRegistryService(db).issue(
             str(session_id), str(DEMO_MERCHANT_USER_ID), str(DEMO_MERCHANT_ID)
         )
+    # Create a canary for NORMAL_SESSION with a known secret for E2E testing
+    # The secret is "E2E_TEST_CANARY_SECRET_KNOWN_VALUE" (not HMAC-derived)
+    normal_session_canary = (
+        db.query(CanaryRecord)
+        .filter_by(session_id=NORMAL_SESSION_ID, kind="api_credential")
+        .first()
+    )
+    if normal_session_canary is None:
+        normal_session_canary = CanaryRecord(
+            session_id=NORMAL_SESSION_ID,
+            identity_id=DEMO_MERCHANT_USER_ID,
+            merchant_id=DEMO_MERCHANT_ID,
+            kind="api_credential",
+            tag="E2E-TEST-CRED",
+            secret_value="E2E_TEST_CANARY_SECRET_KNOWN_VALUE",
+            armed=True,
+            trigger_meta={},
+        )
+        db.add(normal_session_canary)
+    else:
+        # Ensure the known secret is set for E2E testing
+        normal_session_canary.secret_value = "E2E_TEST_CANARY_SECRET_KNOWN_VALUE"
+        normal_session_canary.armed = True
+        normal_session_canary.triggered_at = None
+        normal_session_canary.trigger_meta = {}
+    db.flush()
+
     triggered = (
         db.query(CanaryRecord)
         .filter_by(session_id=DECOY_SESSION_ID, kind="api_key")

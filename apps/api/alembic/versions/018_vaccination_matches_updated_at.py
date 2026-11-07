@@ -13,6 +13,7 @@ with the model, while fresh databases get it directly from 017.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -23,16 +24,24 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "vaccination_matches",
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-            nullable=False,
-        ),
-    )
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    columns = [col["name"] for col in inspector.get_columns("vaccination_matches")]
+    if "updated_at" not in columns:
+        op.add_column(
+            "vaccination_matches",
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.text("CURRENT_TIMESTAMP"),
+                nullable=False,
+            ),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("vaccination_matches", "updated_at")
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    columns = [col["name"] for col in inspector.get_columns("vaccination_matches")]
+    if "updated_at" in columns:
+        op.drop_column("vaccination_matches", "updated_at")
