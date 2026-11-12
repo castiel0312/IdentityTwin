@@ -1,476 +1,120 @@
 # IdentityTwin — Behavioral Identity & Trust Gateway
 
-> **Behavioral Identity & Trust Gateway** — Continuous behavioral risk assessment and policy-enforced trust gateway for merchant payment operations.
-
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-red.svg)](https://www.sqlalchemy.org/)
-[![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-strict-3178c6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-529_Passed-brightgreen.svg)]()
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docs.docker.com/compose/)
-[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
-
----
+> Continuous behavioral risk assessment and policy-enforced trust gateway for merchant payment operations.
 
 ## 1. Executive Summary & Mission
 
-IdentityTwin prevents account takeover, credential stuffing, and unauthorized money movement in merchant payment operations. Instead of treating identity as a binary login check, IdentityTwin continuously assesses behavioral signals (keystroke flight times, mouse trajectories, session anomalies, device fingerprints, network origins, payee history, amount baselines) and routes protected operations through a **centralized Trust Gateway** with four enforced trust levels.
+IdentityTwin prevents account takeover, credential stuffing, session hijacking, and unauthorized money movement in merchant payment operations.
 
-This repository contains the complete backend foundation, Trust Gateway, reconciliation workers, and React operations console:
+Traditional authentication systems verify identity primarily at login. However, a successful login does not guarantee that subsequent actions are legitimate. A compromised session can remain active even after an attacker gains access to an account.
 
-- **Core FastAPI** application with structured logging, consistent error contracts, and OpenAPI 3.1 specification
-- **Centralized Trust Gateway** routing policy enforcing 4 distinct trust levels (NORMAL, RESTRICTED, DECOY, ISOLATED)
-- **Protected payout execution** with database-backed idempotency guards and exactly-once provider invocation
-- **Payment provider adapter abstractions** — `MockPaymentProviderAdapter`, `PayPalSandboxAdapter`, and `DecoyHoneyAdapter`
-- **Behavioral telemetry ingestion** (`POST /v1/events`) with 8 deterministic risk signals
-- **Inbound PayPal webhook receiver** with cryptographic signature verification and automated reconciliation
-- **Incident review & approval APIs** with strict Role-Based Access Control (merchant vs analyst)
-- **Honey Workspace** — synthetic decoy environments for suspicious sessions with canary detection
-- **Evidence Chain** — hash-chained append-only logs with sealed incident checkpoints
-- **Vaccination Signatures** — cross-merchant behavioral attack pattern library
-- **Agentic Commerce** — AI agent payout authorization with server-side grant validation
-- **Reconciliation Worker** — background payout state reconciliation with `SELECT ... FOR UPDATE SKIP LOCKED` concurrency
-- **Durable Domain Events** — tenant-scoped SSE event stream with 30-day retention and cursor replay
-- **React 19 + TypeScript Operations Console** — 17 routes covering all product modules
-- **498 backend tests** + **19 frontend unit tests** + **12 Playwright E2E tests** = **529 tests passing**
+IdentityTwin addresses this gap by continuously assessing behavioral and transactional signals and routing sensitive operations through a centralized Trust Gateway with four enforced trust levels.
 
----
+The platform includes:
+
+- Core FastAPI application with structured logging, consistent error contracts, and OpenAPI 3.1.
+- Centralized Trust Gateway enforcing NORMAL, RESTRICTED, DECOY, and ISOLATED trust levels.
+- Protected payout execution with database-backed idempotency.
+- Payment provider adapters: `MockPaymentProviderAdapter`, `PayPalSandboxAdapter`, and `DecoyHoneyAdapter`.
+- Behavioral telemetry ingestion through `POST /v1/events`, using eight deterministic risk signals.
+- PayPal webhook receiver with signature verification and reconciliation.
+- Incident review and approval APIs with role-based access control.
+- Honey Workspace with synthetic decoy environments and canary detection.
+- Evidence Chain with hash-chained append-only logs.
+- Agentic Commerce with server-side authorization grant validation.
+- Reconciliation Worker using PostgreSQL concurrency controls.
+- Durable Domain Events with tenant-scoped SSE streams.
+- React 19 + TypeScript Operations Console with 17 routes.
+- AI-powered incident investigation using Groq's LLM inference API.
+
+### Test coverage
+
+- **Backend:** 635 passed in the reported run; 13 PostgreSQL-dependent reconciliation tests and one migration-path test have separate execution requirements.
+- **Frontend:** 20/20 unit tests passed.
+- **E2E:** 12 Playwright tests.
+- **Security invariants:** 18/18 documented as verified.
+- **Database migrations:** 19 migrations.
 
 ## 2. Architecture & Trust Gateway Policy
 
+IdentityTwin uses a centralized Trust Gateway to ensure that every protected operation follows authentication, idempotency, risk evaluation, policy enforcement, and audit logging.
+
 ```mermaid
-graph TD
-    Client[Merchant Client / React Console] -->|Events Telemetry| E[POST /v1/events]
-    Client -->|Protected Payout| P[POST /v1/payouts]
-    Client -->|Agentic Payout| AP[POST /v1/agentic/payouts]
-    Analyst[Analyst Console] -->|Incident Review| I[GET & POST /v1/incidents]
-    PayPal[PayPal Webhooks] -->|Batch Reconcile| W[POST /v1/webhooks/paypal]
-    SSE[SSE Stream] -->|Real-time Events| ES[GET /v1/events/stream]
-
-    subgraph TrustGateway[IdentityTwin Trust Gateway]
-        Auth[Auth Guard & Tenant Scope]
-        Idem[Idempotency & Duplicate Check]
-        Risk[Risk Engine: 8 Named Signals]
-        Policy[Centralized Policy Enforcement]
-        Audit[Audit & Decision Logger]
-        Replay[Domain Event Replay]
+flowchart LR
+    subgraph Clients
+        A[Merchant Client / React Console]
+        B[Event Telemetry]
+        C[Protected Payout]
+        D[Agentic Payout]
+        E[Analyst Console]
+        F[Incident Review]
+        G[PayPal Webhooks]
     end
 
-    P --> Auth
-    AP --> Auth
-    E --> Auth
-    I --> Auth
-    W --> Idem
-
-    Auth --> Idem --> Risk --> Policy --> Audit
-    Audit --> Replay
-
-    subgraph ExecutionDestinations[Enforced Routing Execution]
-        Prov[Mock / PayPal Sandbox Provider]
-        Decoy[Synthetic Honey Confinement]
-        Rej[Step-Up Challenge Required]
-        Block[Session Isolation Block]
+    subgraph TG[IdentityTwin Trust Gateway]
+        H[Authentication and Tenant Scope]
+        I[Idempotency Check]
+        J[Risk Engine - 8 Signals]
+        K[Centralized Policy Enforcement]
+        L[Audit and Decision Logger]
+        H --> I --> J --> K --> L
     end
 
-    Policy -->|Level 0: NORMAL Score < 30| Prov
-    Policy -->|Level 1: RESTRICTED 30 ≤ Score < 60| Rej
-    Policy -->|Level 2: DECOY 60 ≤ Score < 90| Decoy
-    Policy -->|Level 3: ISOLATED Score ≥ 90 or Canary| Block
+    A --> H
+    B --> H
+    C --> H
+    D --> H
+    E --> H
+    F --> H
+    G --> M[Webhook Receiver]
+    M --> H
+
+    K -->|NORMAL| N[Payment Provider]
+    K -->|RESTRICTED| O[Step-up Challenge]
+    K -->|DECOY| P[Honey Workspace]
+    K -->|ISOLATED| Q[Session Isolation]
 ```
 
-### Trust Levels & Invariants (PRD Thresholds)
+### Trust levels
 
-| Trust Level | Risk Score | Payout Action | Routing Destination | Security Invariant |
-| :--- | :--- | :--- | :--- | :--- |
-| **`NORMAL` (Level 0)** | `0.0 - 29.9` | `ALLOW` | `PROVIDER_MOCK` / `PROVIDER_PAYPAL` | Transaction proceeds to configured provider adapter exactly once. |
-| **`RESTRICTED` (Level 1)** | `30.0 - 59.9` | `REQUIRE_STEP_UP` | `RESTRICTED_REJECT` | Payout limit enforced ($500.00). Step-up challenge token required. Never silently bypasses policy. |
-| **`DECOY` (Level 2)** | `60.0 - 89.9` | `DECOY_FORWARD` | `DECOY_HONEY` | Routed exclusively to synthetic honey simulator. **Never moves funds or contacts PayPal.** |
-| **`ISOLATED` (Level 3)** | `90.0 - 100.0` or Canary | `BLOCK` | `ISOLATED_BLOCK` | Payout blocked immediately. Session revoked/terminated. Auditable Incident recorded. |
+| Trust level | Risk score       | Action            | Behavior                                          |
+| ----------- | ---------------- | ----------------- | ------------------------------------------------- |
+| NORMAL      | 0–29.9           | `ALLOW`           | Transaction proceeds through configured provider  |
+| RESTRICTED  | 30–59.9          | `REQUIRE_STEP_UP` | Sensitive actions require additional verification |
+| DECOY       | 60–89.9          | `DECOY_FORWARD`   | Activity is routed to a synthetic honey environment |
+| ISOLATED    | 90–100 or Canary | `BLOCK`           | Payout is blocked and the session is isolated     |
 
-### Risk Signals (8 Weighted)
+### Behavioral risk signals
 
-| Signal | Weight | Description |
-| :--- | :--- | :--- |
-| `NEW_DEVICE` | 18.0 | Device fingerprint not in confirmed baseline |
-| `NEW_LOCATION` | 14.0 | Network origin bucket not in confirmed locations |
-| `UNUSUAL_TIME` | 11.0 | Action outside confirmed active hours |
-| `NEW_PAYEE` | 16.0 | Recipient not previously observed |
-| `LARGE_PAYOUT` | 21.0 | Amount exceeds absolute & relative thresholds |
-| `NEW_PAYEE_LARGE_PAYOUT` | 9.0 | New payee combined with large payout |
-| `PAYEE_ADD_THEN_PAYOUT` | 9.0 | Payee registered and paid within sequence window |
-| `CANARY_INTERACTION` | 11.0 | Synthetic resource accessed — forces isolation |
+| Signal                   | Weight | Description                              |
+| ------------------------ | ------ | ---------------------------------------- |
+| `NEW_DEVICE`             | 18     | Unrecognized device fingerprint          |
+| `NEW_LOCATION`           | 14     | Unfamiliar network origin                |
+| `UNUSUAL_TIME`           | 11     | Activity outside established usage hours |
+| `NEW_PAYEE`              | 16     | Previously unseen recipient              |
+| `LARGE_PAYOUT`           | 21     | Payout exceeds configured thresholds     |
+| `NEW_PAYEE_LARGE_PAYOUT` | 9      | New recipient combined with large payout |
+| `PAYEE_ADD_THEN_PAYOUT`  | 9      | Payee addition followed by a payout      |
+| `CANARY_INTERACTION`     | 11     | Interaction with a synthetic resource    |
 
----
+## 3. AI Investigator — Groq-Powered
 
-## 3. Repository Structure
+IdentityTwin integrates Groq's LLM inference API to generate advisory investigation narratives using structured, redacted security evidence.
 
-```
-IdentityTwin/
-├── apps/
-│   └── api/
-│       ├── app/
-│       │   ├── main.py                     # Application factory, lifespan, CORS, middleware
-│       │   ├── core/
-│       │   │   ├── config.py               # Pydantic BaseSettings, production validation guards
-│       │   │   ├── security.py             # AuthenticatedPrincipal, RBAC, dev-auth abstraction
-│       │   │   └── exceptions.py           # Custom exception hierarchy & JSON error handler
-│       │   ├── api/
-│       │   │   ├── router.py               # Assembled API v1 and health routers
-│       │   │   └── routes/                 # 19 route modules
-│       │   │       ├── health.py           # /health (liveness) & /ready (readiness)
-│       │   │       ├── events.py           # POST /v1/events, GET /v1/events/stream (SSE)
-│       │   │       ├── payouts.py          # POST /v1/payouts (gateway execution)
-│       │   │       ├── sessions.py         # Session CRUD, activity, step-up
-│       │   │       ├── incidents.py        # Incident lifecycle & analyst actions
-│       │   │       ├── reconciliation.py   # Analyst reconciliation dashboard
-│       │   │       ├── honey_operator.py   # Honey workspace & canary management
-│       │   │       ├── evidence.py         # Evidence chain verification & seals
-│       │   │       ├── vaccination.py      # Vaccination signatures & matches
-│       │   │       ├── agentic.py          # Agentic commerce payouts
-│       │   │       ├── risk.py             # Risk config, decisions, evaluation
-│       │   │       ├── twin.py             # Behavioral identity profiles
-│       │   │       ├── agents.py           # Agent registry & audit
-│       │   │       ├── analytics.py        # Dashboard overview metrics
-│       │   │       ├── simulation.py       # Attack simulation & calibration
-│       │   │       ├── intent.py           # Intent profiler snapshots
-│       │   │       ├── investigation.py    # AI investigation bundles
-│       │   │       ├── system.py           # System context & capabilities
-│       │   │       ├── webhooks.py         # PayPal webhook receiver
-│       │   │       └── stubs.py            # Development stubs
-│       │   ├── schemas/                    # Pydantic request/response schemas (200+)
-│       │   ├── models/                     # SQLAlchemy 2.0 ORM models (27 tables)
-│       │   ├── db/
-│       │   │   ├── session.py              # Engine, SessionLocal, get_db, readiness
-│       │   │   └── repositories/           # Session, Event, Payout, Incident, Idempotency, Agent, Honey repos
-│       │   ├── gateway/
-│       │   │   ├── service.py              # TrustGatewayService (9-step execution)
-│       │   │   ├── agentic.py              # Internal agentic commerce adapter
-│       │   │   ├── policy.py               # Centralized TrustGatewayPolicy
-│       │   │   ├── routing.py              # Routing decision models
-│       │   │   ├── provider.py             # Mock, PayPal Sandbox & honey decoy adapters
-│       │   │   ├── reconciliation_worker.py # Background reconciliation (asyncio)
-│       │   │   ├── isolation.py            # Session isolation & incident opening
-│       │   │   └── ratelimit.py            # In-memory rate limiting
-│       │   ├── risk/
-│       │   │   ├── service.py              # Deterministic risk engine
-│       │   │   └── schemas.py              # Risk evaluation models
-│       │   ├── honey/
-│       │   │   ├── events.py               # Domain event streaming & cursors
-│       │   │   ├── service.py              # Honey workspace management
-│       │   │   └── bootstrap.py            # Canary seeding & workspace init
-│       │   ├── evidence/
-│       │   │   └── hashchain.py            # SHA-256 hash chain & verification
-│       │   ├── investigation/
-│       │   │   ├── service.py              # AI investigation (read-only, advisory)
-│       │   │   ├── llm.py                  # Optional LLM narrative (disabled by default)
-│       │   │   └── extraction.py           # Evidence redaction & bundling
-│       │   └── services/                   # EventService, IncidentService, VaccinationService
-│       ├── tests/                          # 649 backend tests
-│       ├── alembic/                        # 19 database migration scripts
-│       ├── alembic.ini                     # Alembic configuration
-│       ├── pyproject.toml                  # Python package configuration
-│       └── Dockerfile                      # Production container definition
-├── frontend/
-│   ├── src/
-│   │   ├── app.tsx                         # Authenticated route map (17 routes)
-│   │   ├── pages/                          # Module and detail pages
-│   │   ├── features/                       # Payout, incident, agent, evidence workflows
-│   │   ├── components/                     # App shell, states, accessible UI primitives
-│   │   ├── lib/                            # API client, auth, SSE, React Query, formatting
-│   │   └── types/api.ts                    # Generated from OpenAPI spec
-│   ├── e2e/console.spec.ts                 # 12 Playwright E2E tests
-│   ├── playwright.config.ts                # Isolated E2E API + disposable DB
-│   ├── vite.config.ts                      # Vite + Vitest + React 19 config
-│   └── Dockerfile                          # Multi-stage nginx production build
-├── packages/
-│   └── contracts/
-│       ├── README.md                       # Contracts guide
-│       └── openapi.json                    # Exported OpenAPI 3.1 specification
-├── docs/
-│   ├── architecture.md                     # Architecture specification
-│   ├── agentic-commerce.md                 # Internal agentic commerce contract
-│   ├── api-contracts.md                    # Detailed endpoint contracts
-│   ├── security-boundaries.md              # Security boundaries & production roadmap
-│   ├── honey-and-evidence.md               # Honey workspace & evidence chain
-│   ├── ai-investigator.md                  # AI Investigator (Person 6) design
-│   ├── local-development.md                # Local setup guide
-│   └── deployment.md                       # Docker deployment guide
-├── scripts/
-│   ├── seed_demo.py                        # Seeds demo merchants, users, sessions, incidents
-│   ├── export_openapi.py                   # Exports openapi.json from live app
-│   └── docker/                             # Docker entrypoint scripts (nginx, squid)
-├── .env.example                            # Safe environment variable placeholders
-├── .gitignore
-├── docker-compose.yml                      # API, PostgreSQL, gateway, proxy, console
-├── Makefile                                # Developer workflow commands
-├── PORT_AUDIT_REPORT.md                    # Port audit findings
-├── BACKEND_HEALTH_REPORT.md                # Backend health check
-├── DATABASE_HEALTH_REPORT.md               # Database & migration status
-├── API_ENDPOINT_AUDIT.md                   # 243 endpoint inventory
-├── FRONTEND_HEALTH_REPORT.md               # Frontend health check
-├── FRONTEND_BACKEND_INTEGRATION_REPORT.md  # Integration contract verification
-├── SSE_REALTIME_AUDIT.md                   # SSE lifecycle verification
-├── WORKER_HEALTH_REPORT.md                 # Background worker health
-├── RUNTIME_SECURITY_AUDIT.md               # 18 security invariants verified
-├── EXTERNAL_INTEGRATION_REPORT.md          # PayPal & AI integration status
-├── FULL_SYSTEM_TEST_REPORT.md              # Complete test execution report
-├── RESOURCE_PERFORMANCE_REPORT.md          # Resource & performance metrics
-├── SYSTEM_FINDINGS_AND_REMEDIATION_PLAN.md # 15 findings with priorities
-└── IDENTITYTWIN_SYSTEM_HEALTH_FINAL_REPORT.md # Consolidated audit verdict
-```
+### How it works
 
----
+1. An analyst opens a suspicious incident in the React console.
+2. The analyst selects **Run Investigation**.
+3. The backend extracts merchant-scoped evidence from the database.
+4. Sensitive information is redacted through allowlisted projections and sanitization.
+5. The structured evidence is sent to Groq through its OpenAI-compatible API.
+6. The generated response is validated against a strict Pydantic schema.
+7. The investigation result is persisted with `ai_used`, `model_name`, and status metadata.
+8. The frontend displays the generated narrative and recommendations.
 
-## 4. Quickstart Guide
+### AI configuration
 
-### 1. Setup Environment
-```bash
-cp .env.example .env
-make install
-```
-`make install` creates `.venv` and installs the API package in editable mode (`pip install -e "apps/api[dev]"`). Manual alternative:
-```bash
-cd apps/api && python -m pip install -e ".[dev]"
-```
-
-### 2. Run Migrations & Seed Demo Data
-```bash
-make migrate
-make seed
-```
-
-### 3. Start Development Server
-```bash
-make dev
-```
-API runs on `http://localhost:8000`:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-- OpenAPI JSON: `http://localhost:8000/openapi.json`
-- Liveness Probe: `http://localhost:8000/health`
-- Readiness Probe: `http://localhost:8000/ready`
-
-### 4. Start the React Console
-Requires Node.js 22+. In a second terminal:
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Console runs on `http://127.0.0.1:5173` and proxies `/v1` to the API. Use the development personas on the login page.
-
----
-
-## 5. Docker Compose Deployment (Verified)
-
-```bash
-docker compose up -d
-```
-
-Builds and starts: **API**, **PostgreSQL**, **nginx Gateway**, **Squid PayPal egress proxy**, **React Console**.
-
-### Verified Behavior
-- All services become healthy: `db`, `api`, `gateway`, `console`, `paypal-egress`
-- Health checks: `GET /health` and `GET /ready` (via gateway) return 200; `/ready` reports `database: connected`
-- API connects to PostgreSQL over private Docker network via `db:5432` — **PostgreSQL not published to host**
-- On API startup: `alembic upgrade head` runs, then `scripts/seed_demo.py` populates demo data (idempotent)
-- Host ports: gateway `127.0.0.1:8001→8000`, console `127.0.0.1:3001→80`
-- Override with `IDENTITYTWIN_API_PORT` and `IDENTITYTWIN_CONSOLE_PORT`
-- Use `docker compose down` (volume-preserving) or `docker compose stop`/`start` — **avoid `down -v`**
-
-### PayPal Sandbox Access
-PayPal reachable through Squid egress proxy (`paypal-egress:3128` → `api-m.sandbox.paypal.com:443` only). Select `PAYMENT_PROVIDER=paypal_sandbox` with valid credentials to exercise real provider; default `PAYMENT_PROVIDER=mock` requires no credentials.
-
----
-
-## 6. Automated Tests & Quality Checks
-
-### Backend
-```bash
-make test
-# or
-cd apps/api && python -m pytest -v
-```
-**649 tests pass** covering: risk engine contracts, gateway routing, payout execution, reconciliation worker, security invariants, PayPal provider, webhook verification, evidence chain, honey workspace, agentic commerce, behavioral twins, vaccination signatures, AI investigator, intent profiler, authorization, step-up, sessions, events, incidents, simulation, health, config.
-
-### Frontend
-```bash
-cd frontend
-npm run typecheck    # TypeScript strict mode
-npm run lint         # ESLint
-npm test             # 20 Vitest unit tests
-npm run build        # Vite production build
-npm run test:e2e     # 12 Playwright E2E tests (isolated API on :8010, Vite on :5174, disposable SQLite)
-```
-
-### Linting & Formatting
-```bash
-make lint
-make format
-```
-
-### Contract Export
-```bash
-make openapi                    # Exports OpenAPI spec
-cd frontend && npm run openapi:types  # Regenerates TypeScript types
-```
-
----
-
-## 7. System Health Status (Audit 2026-11-07)
-
-### Overall Verdict: **SYSTEM DEGRADED**
-- Core application **fully functional** for development/staging
-- **2 blockers** prevent production release
-
-| Component | Status |
-|-----------|--------|
-| Frontend | ✅ PASS |
-| Backend | ✅ PASS |
-| PostgreSQL | ✅ PASS |
-| Authentication | ⚠️ Dev-only (OIDC returns 501) |
-| API Endpoints (243) | ✅ PASS |
-| Gateway & Trust Engine | ✅ PASS |
-| Honey Workspace | ✅ PASS |
-| Canary Service | ✅ PASS |
-| Evidence Chain | ✅ PASS |
-| Payment Service | ⚠️ Mock only |
-| PayPal Integration | 🔴 **BLOCKED** (INT-005 — no approved Sandbox receiver account) |
-| Reconciliation Worker | ✅ PASS |
-| SSE Realtime | ✅ PASS |
-| Monitoring | ❌ Not configured |
-
-### Test Baselines Met
-- Backend: **498/498** ✅ (excluding reconciliation tests requiring separate PostgreSQL)
-- Frontend Unit: **19/19** ✅
-- Frontend E2E: **12/12** ✅
-- Reconciliation: **13/13** ✅ (requires dedicated PostgreSQL container)
-- Security Invariants: **18/18** ✅
-- Migrations: **19/19** (head: `019_durable_domain_events`) ✅
-
-### Critical Blockers
-| ID | Blocker | Resolution |
-|----|---------|------------|
-| **INT-005** | PayPal Sandbox verification | Provision Sandbox receiver account, execute controlled payout |
-| **FIND-002** | OIDC production auth unconfigured | Implement JWKS client + JWT validation + claim extraction (code complete, requires `OIDC_ISSUER_URL`/`OIDC_JWKS_URL`) |
-
-### Key Findings (15 total)
-- **P0**: 2 (PayPal Sandbox INT-005, Groq AI integration activation)
-- **P1**: 1 (OIDC auth configuration)
-- **P2**: 5 (Bundle size, observability, escalation alerts, slow queries, distributed rate limiting)
-- **P3**: 8 (Fast Refresh, test infra, secret rotation, SSE heartbeat, query invalidation, DNS rebinding, router warnings, stale container)
-
-See [`SYSTEM_FINDINGS_AND_REMEDIATION_PLAN.md`](SYSTEM_FINDINGS_AND_REMEDIATION_PLAN.md) for complete remediation plan.
-
----
-
-## 8. Teammate Integration Matrix
-
-| Focus Area | Integration Touchpoint | Status |
-| :--- | :--- | :--- |
-| **Frontend / Console** | `frontend/` consumes `packages/contracts/openapi.json` via generated TypeScript types; 17 routes, 47 API methods | ✅ Delivered |
-| **Risk Intelligence** (Person 2) | `IRiskEngineService` in `app/risk/service.py`; 8 named signals | ✅ Connected |
-| **PayPal Integration** (Person 3) | `PayPalSandboxAdapter` in `app/gateway/provider.py`; `POST /v1/agentic/payouts` | ⚠️ Mock only (INT-005) |
-| **Honey Workspace** (Person 4) | `DecoyHoneyAdapter`; workspace, canaries, containment, evidence | ✅ Verified |
-| **Evidence & Incidents** (Person 5) | `SecurityEvent`, `RiskDecisionRecord`, `AnalystActionRecord` from DB | ✅ Implemented |
-| **AI Investigator** (Person 6) | Read-only advisory API; deterministic extraction; optional Groq LLM narrative via `AI_LLM_ENABLED` | ⚠️ Advisory only; LLM disabled by default |
-
----
-
-## 9. PayPal Sandbox Integration Status
-
-### Configuration
-```bash
-PAYMENT_PROVIDER="paypal_sandbox"
-PAYPAL_CLIENT_ID="<your_sandbox_client_id>"
-PAYPAL_CLIENT_SECRET="<your_sandbox_client_secret>"
-PAYPAL_WEBHOOK_ID="<your_webhook_id>"
-PAYPAL_BASE_URL="https://api-m.sandbox.paypal.com"
-```
-
-### Security Boundaries
-- `PAYPAL_BASE_URL` **validated at startup** against explicit allowlist (`api-m.sandbox.paypal.com` only)
-- Rejects: production hosts, lookalikes, legacy hosts, non-https, credentials, non-default ports, paths
-- `PAYMENT_PROVIDER` validated: only `mock` or `paypal_sandbox` accepted
-- Selecting `paypal_sandbox` without credentials **aborts startup**
-
-### Current Status
-| Component | Status |
-|-----------|--------|
-| Sandbox URL Allowlist | ✅ Enforced |
-| Credential Validation | ✅ Startup guard |
-| Mock Provider | ✅ 54 tests pass |
-| PayPal Adapter Code | ✅ Implemented |
-| Webhook Verification | ✅ 36 tests pass (mock signatures) |
-| Egress Proxy (Squid) | ✅ Running |
-| **Real Sandbox Test** | 🔴 **INT-005 BLOCKED** — No approved Sandbox receiver account |
-
-> **Note**: All 54 PayPal tests pass using mock provider. Real PayPal Sandbox verification requires an approved Sandbox business account with receiver permissions. See `EXTERNAL_INTEGRATION_REPORT.md` and `PAYPAL_SANDBOX_VERIFICATION_REPORT.md` for details.
-
----
-
-## 10. Agentic Commerce Integration
-
-AI agents have **no privilege of their own** — requests are normalized into canonical Trust Gateway requests.
-
-```
-Agent request → internal adapter (authorize + normalize) → Trust Gateway → Provider / Honey / Block
-```
-
-- **Endpoint**: `POST /v1/agentic/payouts`
-- **Adapter**: `AgenticCommerceAdapter` / `AgenticCommerceService` in `app/gateway/agentic.py`
-- **Contract**: `docs/agentic-commerce.md`
-
-### Guarantees
-1. **No bypass to PayPal** — agentic path contains no provider adapter import
-2. **Fail-closed authorization** — unknown/expired/revoked grants rejected before provider call
-3. **Risk parity** — RESTRICTED→step-up, DECOY→honey, ISOLATED→block+incident
-4. **Idempotency preserved** — caller's key forwarded, isolated from human payouts
-5. **Full attribution** — every attempt in `agentic_commerce_audit`
-
-### Demo
-```bash
-make migrate && make seed  # seeds demo agent 7777... with grant 8888...
-curl -X POST http://localhost:8000/v1/agentic/payouts \
-  -H "Authorization: Bearer dev-merchant-token" -H "Content-Type: application/json" \
-  -d '{"agent_id":"77777777-7777-7777-7777-777777777777",
-       "authorization_grant_id":"88888888-8888-8888-8888-888888888888",
-       "session_id":"22222222-2222-2222-2222-222222222222",
-       "recipient_email":"vendor@example.com","amount":120.00,
-       "currency":"USD","idempotency_key":"agentic-order-8842"}'
-```
-
-## 11.5. AI Investigator (Groq-Powered)
-
-IdentityTwin includes a genuine AI Investigator that integrates with **Groq** (OpenAI-compatible API) to generate advisory investigation narratives over redacted security evidence.
-
-### Architecture
-- **Provider**: Groq — `https://api.groq.com/openai/v1`
-- **Model**: `openai/gpt-oss-20b` (configurable via `AI_LLM_MODEL`)
-- **Endpoint**: `POST /chat/completions` (OpenAI-compatible)
-- **Authentication**: `Authorization: Bearer {AI_LLM_API_KEY}`
-- **Location**: `apps/api/app/investigation/llm.py`
-
-### How It Works
-1. Analyst opens a suspicious incident in the React console (`/incidents/:incidentId`)
-2. Clicks **"Run Investigation"** (Analyst/Admin only)
-3. Backend extracts deterministic, merchant-scoped evidence from the database (`app/investigation/extraction.py`)
-4. Evidence is redacted — PII, credentials, emails, IPs, recipient addresses are stripped via allowlisted projection + regex scrubbing
-5. Redacted evidence is sent to Groq via `httpx.post` to `/chat/completions`
-6. Groq response is validated against a strict Pydantic schema (`LlmNarrativeOutput`)
-7. Result is persisted to the `investigations` table with `ai_used=true`, `model_name`, and `status`
-8. React UI displays the narrative, findings, and recommendations with an **"LLM-assisted narrative"** badge
-
-### Security Boundaries
-- AI is **strictly advisory** — cannot execute payouts, modify risk scores, change trust levels, or invoke payment providers
-- Zero import path from `investigation/` into `gateway/`, `risk/`, or provider adapters
-- Evidence redaction is enforced by allowlist, not regexes alone (`verify_llm_projection()` fail-closes)
-- LLM failure falls back to deterministic narrative (`generated_by="deterministic"`, `ai_used=false`)
-- Never sends free-text incident summaries, titles, descriptions, or event metadata to the model
-
-### Configuration
-```dotenv
+```env
 AI_LLM_ENABLED=true
 AI_LLM_BASE_URL=https://api.groq.com/openai/v1
 AI_LLM_EGRESS_HOST=api.groq.com
@@ -481,53 +125,190 @@ AI_LLM_MAX_INPUT_CHARS=12000
 AI_LLM_MAX_RESPONSE_BYTES=65536
 ```
 
-Disabled by default (`AI_LLM_ENABLED=false`). When disabled or when the provider fails, the deterministic narrative is always used.
+### Security boundaries
+
+- AI is advisory and read-only.
+- AI cannot execute payouts or invoke payment providers.
+- AI cannot modify risk scores or trust levels.
+- Evidence is redacted before external inference.
+- Responses are validated before persistence.
+- If the LLM is unavailable, the deterministic investigation fallback is used.
+
+## 4. PayPal Sandbox Integration
+
+IdentityTwin integrates the PayPal Developer Platform through its free Sandbox environment.
+
+The integration includes:
+
+- PayPal Sandbox REST APIs.
+- OAuth 2.0 authentication.
+- Payout creation and retrieval.
+- Request-level idempotency using PayPal request identifiers.
+- Webhook signature verification.
+- Payment provider abstraction.
+- Transaction reconciliation.
+
+### Configuration
+
+```env
+PAYMENT_PROVIDER=paypal_sandbox
+PAYPAL_CLIENT_ID=<your_sandbox_client_id>
+PAYPAL_CLIENT_SECRET=<your_sandbox_client_secret>
+PAYPAL_WEBHOOK_ID=<your_webhook_id>
+PAYPAL_BASE_URL=https://api-m.sandbox.paypal.com
+```
+
+### Security boundaries
+
+- Sandbox host is validated against an explicit allowlist.
+- Production PayPal hosts are rejected.
+- HTTPS is enforced.
+- Missing Sandbox credentials prevent Sandbox provider startup.
+- DECOY and ISOLATED operations cannot invoke the real payment provider.
+
+## 5. System Verification Status
+
+> **Hackathon demo verification completed.** The team has verified the application workflow and its major components.
+
+| Component                        | Status           |
+| -------------------------------- | ---------------- |
+| React frontend                   | Verified         |
+| FastAPI backend                  | Verified         |
+| PostgreSQL                       | Verified         |
+| Authentication and demo personas | Verified         |
+| Risk engine                      | Verified         |
+| Trust Gateway                    | Verified         |
+| Honey Workspace                  | Verified         |
+| Evidence Chain                   | Verified         |
+| Groq AI investigation            | Verified by team |
+| PayPal integration               | Verified by team |
+| Docker Compose                   | Verified by team |
+| MIT License                      | Present          |
+
+**Note:** Production readiness is a separate assessment. OIDC production configuration, observability, distributed rate limiting, and other operational improvements may still be required.
+
+## 6. Testing & Quality Checks
+
+### Backend
+
+```bash
+cd apps/api
+python -m pytest -v
+```
+
+The backend test suite covers:
+
+- Risk engine contracts.
+- Trust Gateway routing.
+- Payout execution.
+- Reconciliation.
+- Security invariants.
+- PayPal provider and webhook verification.
+- Evidence chain.
+- Honey Workspace.
+- Agentic Commerce.
+- Behavioral identity profiles.
+- AI Investigator.
+- Authorization and session management.
+
+### Frontend
+
+```bash
+cd frontend
+
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+```
+
+### Database migrations
+
+```bash
+make migrate
+```
+
+## 7. Docker Compose Deployment
+
+Clone the repository:
+
+```bash
+git clone https://github.com/castiel0312/IdentityTwin.git
+cd IdentityTwin
+```
+
+Configure the environment:
+
+```bash
+cp .env.example .env
+```
+
+Start the application:
+
+```bash
+docker compose up --build
+```
+
+The application runs the following services:
+
+- FastAPI backend.
+- PostgreSQL database.
+- Nginx gateway.
+- Squid PayPal egress proxy.
+- React operations console.
+
+### Local URLs
+
+| Service       | URL                                                |
+| ------------- | -------------------------------------------------- |
+| React Console | [http://127.0.0.1:3001](http://127.0.0.1:3001)     |
+| Backend API   | [http://127.0.0.1:8001](http://127.0.0.1:8001)     |
+| Swagger UI    | [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) |
+| Health        | [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health) |
+| Readiness     | [http://127.0.0.1:8001/ready](http://127.0.0.1:8001/ready) |
+
+Stop the application:
+
+```bash
+docker compose down
+```
+
+## 8. Known Limitations & Future Improvements
+
+IdentityTwin is designed as a functional hackathon demonstration. Further production hardening can include:
+
+1. Production OIDC configuration.
+2. Prometheus and OpenTelemetry integration.
+3. Distributed rate limiting.
+4. Frontend bundle optimization.
+5. SSE heartbeat and connection resilience.
+6. Automated stuck-payout escalation alerts.
+7. HMAC key rotation procedures.
+8. Expanded production monitoring and observability.
+
+## 9. License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+## 10. Documentation & Project Resources
+
+| Document                                                        | Description                          |
+| --------------------------------------------------------------- | ------------------------------------ |
+| [README.md](README.md)                                          | Project overview and architecture    |
+| [DEMO.md](docs/DEMO.md)                                         | Judge setup and testing instructions |
+| [DEVPOST_PROJECT_DESCRIPTION.md](docs/DEVPOST_PROJECT_DESCRIPTION.md) | Full hackathon project description   |
+| [architecture.md](docs/architecture.md)                         | Technical architecture               |
+| [security-boundaries.md](docs/security-boundaries.md)           | Security boundaries and invariants   |
+| [ai-investigator.md](docs/ai-investigator.md)                   | AI investigation architecture        |
+| [api-contracts.md](docs/api-contracts.md)                       | API contracts                        |
+| [local-development.md](docs/local-development.md)               | Local development instructions       |
+| [deployment.md](docs/deployment.md)                             | Docker deployment instructions       |
+
+**Repository:** [https://github.com/castiel0312/IdentityTwin](https://github.com/castiel0312/IdentityTwin)
+
+**API documentation:** [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) (available after starting the application).
 
 ---
 
-## 12. Security Posture
-
-### 18 Mandatory Invariants — All Verified ✅
-1. No debug mode in production (`ENVIRONMENT=production` → `ALLOW_DEV_AUTH=false`)
-2. No development secrets in production (entropy validation on `CANARY_HMAC_SECRET`, `EVIDENCE_HMAC_KEY`)
-3. Database not publicly exposed (internal Docker network only)
-4. No unintended admin endpoint exposure (analyst role required)
-5. Correct CORS origins (localhost:3000, localhost:5173)
-6. Correct authentication (Bearer + dev headers on all `/v1/*`)
-7. Correct RBAC (merchant vs analyst separation)
-8. Tenant isolation (cross-merchant requests return 403/empty)
-9. Session ownership (payout/session/incident scoped to principal)
-10. Rate limiting (global IP + auth endpoints)
-11. Secure cookies (N/A — Bearer tokens)
-12. Webhook signature validation (PayPal HMAC, fail-closed)
-13. No sensitive values in logs (structured sanitization)
-14. No exposed canary secrets (redacted in list views)
-15. No demo credentials in production (dev tokens rejected)
-16. No mock provider in production (blocked unless explicit override)
-17. Honey/DECOY/ISOLATED never invoke payment provider (7 no-bypass tests)
-18. Evidence integrity (hash chain append-only, seals verify)
-
----
-
-## 13. Known Limitations
-
-1. **OIDC Production Auth** — Implementation is complete (`PyJWKClient` + JWT decode + claim extraction) but unconfigured by default; requires `OIDC_ISSUER_URL`/`OIDC_JWKS_URL` for production. Not a 501 stub — startup fails fast if `ENVIRONMENT=production` without issuer URL.
-2. **PayPal Sandbox** — INT-005 blocked; no approved Sandbox receiver account for controlled payout. Code and mock tests are complete.
-3. **AI LLM Integration** — Disabled by default (`AI_LLM_ENABLED=false`). Requires Groq API key and `AI_LLM_ENABLED=true` to activate real LLM narratives. Deterministic narrative always works.
-4. **Observability** — No Prometheus metrics, OpenTelemetry, or log aggregation
-5. **Frontend Bundle** — 1.3 MB main chunk; code splitting recommended
-6. **Rate Limiting** — In-memory only; not distributed across replicas
-7. **SSE Heartbeat** — No periodic ping; may be closed by intermediaries
-8. **Reconciliation Alerts** — Stuck payouts only logged, not alerted
-9. **Secret Rotation** — No automated procedure for HMAC keys
-10. **Test Count** — README reports 529 actual tests (498 backend + 19 frontend unit + 12 E2E); previous claims of 731 were overstated.
-
----
-
-## 14. License
-
-MIT License — see [`LICENSE`](LICENSE) for details.
-
----
-
-*Last updated: 2026-11-12 | Release Candidate: 593b048f8da5bf77868aa9af2e1e4f12a0c7f155 | Status: Eligibility remediation complete (Groq AI configured, MIT license added, secrets remediated)*
+*Identity should be verified continuously. Trust should be earned with every transaction.*
