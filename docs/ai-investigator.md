@@ -46,10 +46,10 @@ not disclosed. Merchants cannot run investigations.
 ```dotenv
 AI_INVESTIGATION_ENABLED=true
 AI_LLM_ENABLED=false
-AI_LLM_BASE_URL=
-AI_LLM_EGRESS_HOST=
-AI_LLM_API_KEY=
-AI_LLM_MODEL=
+AI_LLM_BASE_URL=https://api.groq.com/openai/v1
+AI_LLM_EGRESS_HOST=api.groq.com
+AI_LLM_API_KEY=<your_groq_api_key>
+AI_LLM_MODEL=openai/gpt-oss-20b
 AI_LLM_TIMEOUT=10.0
 AI_LLM_MAX_INPUT_CHARS=12000
 AI_LLM_MAX_RESPONSE_BYTES=65536
@@ -57,7 +57,9 @@ AI_INVESTIGATION_MAX_EVENTS=100
 ```
 
 When `AI_LLM_ENABLED=true`, configure all of `AI_LLM_BASE_URL`,
-`AI_LLM_EGRESS_HOST`, `AI_LLM_API_KEY` and `AI_LLM_MODEL`. The egress host must
+`AI_LLM_EGRESS_HOST`, `AI_LLM_API_KEY` and `AI_LLM_MODEL`. The selected provider
+is **Groq** (OpenAI-compatible API at `https://api.groq.com/openai/v1`),
+model `openai/gpt-oss-20b`. The egress host must
 exactly match the URL hostname, and Compose allows the proxy to CONNECT only to
 that hostname on TLS port 443 (in addition to the allowlisted PayPal Sandbox
 host). Put the API key in an untracked local `.env` or, outside local

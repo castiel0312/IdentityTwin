@@ -7,9 +7,9 @@
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-red.svg)](https://www.sqlalchemy.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-strict-3178c6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-731_Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-529_Passed-brightgreen.svg)]()
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docs.docker.com/compose/)
-[![License](https://img.shields.io/badge/License-MIT-purple.svg)]()
+[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
 ---
 
@@ -33,7 +33,7 @@ This repository contains the complete backend foundation, Trust Gateway, reconci
 - **Reconciliation Worker** — background payout state reconciliation with `SELECT ... FOR UPDATE SKIP LOCKED` concurrency
 - **Durable Domain Events** — tenant-scoped SSE event stream with 30-day retention and cursor replay
 - **React 19 + TypeScript Operations Console** — 17 routes covering all product modules
-- **649 backend tests** + **20 frontend unit tests** + **12 Playwright E2E tests** = **731 tests passing**
+- **498 backend tests** + **19 frontend unit tests** + **12 Playwright E2E tests** = **529 tests passing**
 
 ---
 
@@ -336,16 +336,16 @@ cd frontend && npm run openapi:types  # Regenerates TypeScript types
 | Canary Service | ✅ PASS |
 | Evidence Chain | ✅ PASS |
 | Payment Service | ⚠️ Mock only |
-| PayPal Integration | 🔴 **BLOCKED** (INT-005) |
+| PayPal Integration | 🔴 **BLOCKED** (INT-005 — no approved Sandbox receiver account) |
 | Reconciliation Worker | ✅ PASS |
 | SSE Realtime | ✅ PASS |
 | Monitoring | ❌ Not configured |
 
 ### Test Baselines Met
-- Backend: **649/649** ✅
-- Frontend Unit: **20/20** ✅
+- Backend: **498/498** ✅ (excluding reconciliation tests requiring separate PostgreSQL)
+- Frontend Unit: **19/19** ✅
 - Frontend E2E: **12/12** ✅
-- Reconciliation: **13/13** ✅
+- Reconciliation: **13/13** ✅ (requires dedicated PostgreSQL container)
 - Security Invariants: **18/18** ✅
 - Migrations: **19/19** (head: `019_durable_domain_events`) ✅
 
@@ -353,11 +353,11 @@ cd frontend && npm run openapi:types  # Regenerates TypeScript types
 | ID | Blocker | Resolution |
 |----|---------|------------|
 | **INT-005** | PayPal Sandbox verification | Provision Sandbox receiver account, execute controlled payout |
-| **FIND-002** | OIDC production auth returns 501 | Implement JWKS client + JWT validation + claim extraction |
+| **FIND-002** | OIDC production auth unconfigured | Implement JWKS client + JWT validation + claim extraction (code complete, requires `OIDC_ISSUER_URL`/`OIDC_JWKS_URL`) |
 
 ### Key Findings (15 total)
-- **P0**: 1 (PayPal Sandbox)
-- **P1**: 1 (OIDC auth)
+- **P0**: 2 (PayPal Sandbox INT-005, Groq AI integration activation)
+- **P1**: 1 (OIDC auth configuration)
 - **P2**: 5 (Bundle size, observability, escalation alerts, slow queries, distributed rate limiting)
 - **P3**: 8 (Fast Refresh, test infra, secret rotation, SSE heartbeat, query invalidation, DNS rebinding, router warnings, stale container)
 
@@ -374,7 +374,7 @@ See [`SYSTEM_FINDINGS_AND_REMEDIATION_PLAN.md`](SYSTEM_FINDINGS_AND_REMEDIATION_
 | **PayPal Integration** (Person 3) | `PayPalSandboxAdapter` in `app/gateway/provider.py`; `POST /v1/agentic/payouts` | ⚠️ Mock only (INT-005) |
 | **Honey Workspace** (Person 4) | `DecoyHoneyAdapter`; workspace, canaries, containment, evidence | ✅ Verified |
 | **Evidence & Incidents** (Person 5) | `SecurityEvent`, `RiskDecisionRecord`, `AnalystActionRecord` from DB | ✅ Implemented |
-| **AI Investigator** (Person 6) | Read-only advisory API; deterministic extraction; optional LLM disabled by default | ✅ Advisory only |
+| **AI Investigator** (Person 6) | Read-only advisory API; deterministic extraction; optional Groq LLM narrative via `AI_LLM_ENABLED` | ⚠️ Advisory only; LLM disabled by default |
 
 ---
 
@@ -404,9 +404,9 @@ PAYPAL_BASE_URL="https://api-m.sandbox.paypal.com"
 | PayPal Adapter Code | ✅ Implemented |
 | Webhook Verification | ✅ 36 tests pass (mock signatures) |
 | Egress Proxy (Squid) | ✅ Running |
-| **Real Sandbox Test** | 🔴 **INT-005 BLOCKED** — No receiver account |
+| **Real Sandbox Test** | 🔴 **INT-005 BLOCKED** — No approved Sandbox receiver account |
 
-> **Note**: All 54 PayPal tests pass using mock provider. Real PayPal Sandbox verification requires an approved Sandbox business account with receiver permissions. See `EXTERNAL_INTEGRATION_REPORT.md` for details.
+> **Note**: All 54 PayPal tests pass using mock provider. Real PayPal Sandbox verification requires an approved Sandbox business account with receiver permissions. See `EXTERNAL_INTEGRATION_REPORT.md` and `PAYPAL_SANDBOX_VERIFICATION_REPORT.md` for details.
 
 ---
 
@@ -441,9 +441,51 @@ curl -X POST http://localhost:8000/v1/agentic/payouts \
        "currency":"USD","idempotency_key":"agentic-order-8842"}'
 ```
 
+## 11.5. AI Investigator (Groq-Powered)
+
+IdentityTwin includes a genuine AI Investigator that integrates with **Groq** (OpenAI-compatible API) to generate advisory investigation narratives over redacted security evidence.
+
+### Architecture
+- **Provider**: Groq — `https://api.groq.com/openai/v1`
+- **Model**: `openai/gpt-oss-20b` (configurable via `AI_LLM_MODEL`)
+- **Endpoint**: `POST /chat/completions` (OpenAI-compatible)
+- **Authentication**: `Authorization: Bearer {AI_LLM_API_KEY}`
+- **Location**: `apps/api/app/investigation/llm.py`
+
+### How It Works
+1. Analyst opens a suspicious incident in the React console (`/incidents/:incidentId`)
+2. Clicks **"Run Investigation"** (Analyst/Admin only)
+3. Backend extracts deterministic, merchant-scoped evidence from the database (`app/investigation/extraction.py`)
+4. Evidence is redacted — PII, credentials, emails, IPs, recipient addresses are stripped via allowlisted projection + regex scrubbing
+5. Redacted evidence is sent to Groq via `httpx.post` to `/chat/completions`
+6. Groq response is validated against a strict Pydantic schema (`LlmNarrativeOutput`)
+7. Result is persisted to the `investigations` table with `ai_used=true`, `model_name`, and `status`
+8. React UI displays the narrative, findings, and recommendations with an **"LLM-assisted narrative"** badge
+
+### Security Boundaries
+- AI is **strictly advisory** — cannot execute payouts, modify risk scores, change trust levels, or invoke payment providers
+- Zero import path from `investigation/` into `gateway/`, `risk/`, or provider adapters
+- Evidence redaction is enforced by allowlist, not regexes alone (`verify_llm_projection()` fail-closes)
+- LLM failure falls back to deterministic narrative (`generated_by="deterministic"`, `ai_used=false`)
+- Never sends free-text incident summaries, titles, descriptions, or event metadata to the model
+
+### Configuration
+```dotenv
+AI_LLM_ENABLED=true
+AI_LLM_BASE_URL=https://api.groq.com/openai/v1
+AI_LLM_EGRESS_HOST=api.groq.com
+AI_LLM_API_KEY=<your_groq_api_key>
+AI_LLM_MODEL=openai/gpt-oss-20b
+AI_LLM_TIMEOUT=10.0
+AI_LLM_MAX_INPUT_CHARS=12000
+AI_LLM_MAX_RESPONSE_BYTES=65536
+```
+
+Disabled by default (`AI_LLM_ENABLED=false`). When disabled or when the provider fails, the deterministic narrative is always used.
+
 ---
 
-## 11. Security Posture
+## 12. Security Posture
 
 ### 18 Mandatory Invariants — All Verified ✅
 1. No debug mode in production (`ENVIRONMENT=production` → `ALLOW_DEV_AUTH=false`)
@@ -467,25 +509,25 @@ curl -X POST http://localhost:8000/v1/agentic/payouts \
 
 ---
 
-## 12. Known Limitations
+## 13. Known Limitations
 
-1. **OIDC Production Auth** — Returns 501; requires JWKS/JWT implementation
-2. **PayPal Sandbox** — INT-005 blocked; no receiver account for controlled payout
-3. **Observability** — No Prometheus metrics, OpenTelemetry, or log aggregation
-4. **Frontend Bundle** — 1.3 MB main chunk; code splitting recommended
-5. **Rate Limiting** — In-memory only; not distributed across replicas
-6. **SSE Heartbeat** — No periodic ping; may be closed by intermediaries
-7. **Reconciliation Alerts** — Stuck payouts only logged, not alerted
-8. **Secret Rotation** — No automated procedure for HMAC keys
-
-See [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) and [`SYSTEM_FINDINGS_AND_REMEDIATION_PLAN.md`](SYSTEM_FINDINGS_AND_REMEDIATION_PLAN.md) for full details.
+1. **OIDC Production Auth** — Implementation is complete (`PyJWKClient` + JWT decode + claim extraction) but unconfigured by default; requires `OIDC_ISSUER_URL`/`OIDC_JWKS_URL` for production. Not a 501 stub — startup fails fast if `ENVIRONMENT=production` without issuer URL.
+2. **PayPal Sandbox** — INT-005 blocked; no approved Sandbox receiver account for controlled payout. Code and mock tests are complete.
+3. **AI LLM Integration** — Disabled by default (`AI_LLM_ENABLED=false`). Requires Groq API key and `AI_LLM_ENABLED=true` to activate real LLM narratives. Deterministic narrative always works.
+4. **Observability** — No Prometheus metrics, OpenTelemetry, or log aggregation
+5. **Frontend Bundle** — 1.3 MB main chunk; code splitting recommended
+6. **Rate Limiting** — In-memory only; not distributed across replicas
+7. **SSE Heartbeat** — No periodic ping; may be closed by intermediaries
+8. **Reconciliation Alerts** — Stuck payouts only logged, not alerted
+9. **Secret Rotation** — No automated procedure for HMAC keys
+10. **Test Count** — README reports 529 actual tests (498 backend + 19 frontend unit + 12 E2E); previous claims of 731 were overstated.
 
 ---
 
-## 13. License
+## 14. License
 
 MIT License — see [`LICENSE`](LICENSE) for details.
 
 ---
 
-*Last updated: 2026-11-07 | Release Candidate: 593b048f8da5bf77868aa9af2e1e4f12a0c7f155 | Audit: SYSTEM DEGRADED*
+*Last updated: 2026-11-12 | Release Candidate: 593b048f8da5bf77868aa9af2e1e4f12a0c7f155 | Status: Eligibility remediation complete (Groq AI configured, MIT license added, secrets remediated)*
